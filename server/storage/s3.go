@@ -49,7 +49,8 @@ func (s *S3Storage) Download(storageKey string, fileName string) (string, error)
 	if s.Domain != "" {
 		parts := strings.Split(storageKey, "/")
 		for i, p := range parts {
-			parts[i] = url.PathEscape(p)
+			// PathEscape leaves '+' unescaped; S3/CDN treat '+' as space.
+			parts[i] = strings.ReplaceAll(url.PathEscape(p), "+", "%2B")
 		}
 		return "https://" + s.Domain + "/" + strings.Join(parts, "/"), nil
 	}
