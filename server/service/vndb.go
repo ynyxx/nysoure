@@ -1,5 +1,7 @@
 package service
 
+// https://api.vndb.org/kana
+
 import (
 	"errors"
 	"fmt"
