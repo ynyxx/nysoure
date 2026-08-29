@@ -4,6 +4,7 @@ import { network } from "../network/network";
 import showToast from "./toast";
 import { useTranslation } from "../hook/i18n";
 import Button from "./button";
+import { parseVndbId } from "../utils/vndb";
 
 export default function CharacterEditor({
   character,
@@ -126,8 +127,8 @@ export function FetchVndbCharactersButton({
   const { t } = useTranslation();
   const [isFetching, setFetching] = useState(false);
   const fetchCharacters = async () => {
-    // validate vnID (v123456)
-    if (!/^v\d+$/.test(vnID)) {
+    const parsedVnID = parseVndbId(vnID);
+    if (!parsedVnID) {
       showToast({
         type: "error",
         message: t("Invalid VNDB ID format"),
@@ -135,7 +136,7 @@ export function FetchVndbCharactersButton({
       return;
     }
     setFetching(true);
-    const res = await network.getInfoFromVNDB(vnID);
+    const res = await network.getInfoFromVNDB(parsedVnID);
     setFetching(false);
     if (res.success && res.data) {
       onFetch(res.data.characters ?? [], res.data.release_date);

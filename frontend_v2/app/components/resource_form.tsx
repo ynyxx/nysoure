@@ -18,14 +18,27 @@ import {
   UploadClipboardImageButton,
 } from "./image_selector";
 import CharacterEditor, { FetchVndbCharactersButton } from "./character_editor";
+import { parseVndbId } from "../utils/vndb";
 
-const ALL_SECTIONS = ["basic", "article", "tags", "images", "characters"] as const;
+const ALL_SECTIONS = [
+  "basic",
+  "article",
+  "tags_basic",
+  "tags_staff",
+  "tags_content",
+  "images",
+  "characters",
+] as const;
 type PrefillSection = (typeof ALL_SECTIONS)[number];
+
+const TAG_SECTIONS: PrefillSection[] = ["tags_basic", "tags_staff", "tags_content"];
 
 const SECTION_LABELS: Record<PrefillSection, string> = {
   basic: "Basic Info",
   article: "Article",
-  tags: "Tags",
+  tags_basic: "Basic Tags",
+  tags_staff: "Personnel Tags",
+  tags_content: "Content Tags",
   images: "Images",
   characters: "Characters",
 };
@@ -107,13 +120,14 @@ export default function ResourceForm({
   };
 
   const handleImportFromVNDB = async () => {
-    if (!/^v\d+$/.test(vnID)) {
+    const parsedVnID = parseVndbId(vnID);
+    if (!parsedVnID) {
       setImportError(t("Invalid VNDB ID format"));
       return;
     }
     setImportError(null);
     setImporting(true);
-    const res = await network.getResourcePrefillFromVNDB(vnID, selectedSections);
+    const res = await network.getResourcePrefillFromVNDB(parsedVnID, selectedSections);
     setImporting(false);
     if (!res.success || !res.data) {
       setImportError(res.message || t("Failed to fetch resource params from VNDB"));
@@ -129,7 +143,7 @@ export default function ResourceForm({
     if (selectedSections.includes("article")) {
       setArticle(data.article || "");
     }
-    if (selectedSections.includes("tags")) {
+    if (TAG_SECTIONS.some((section) => selectedSections.includes(section))) {
       setTags((prev) => {
         const merged = [...prev];
         for (const newTag of data.tags || []) {
@@ -279,7 +293,7 @@ export default function ResourceForm({
             <input
               type="text"
               className="input input-sm flex-1"
-              placeholder="v12345"
+              placeholder={t("v12345 or https://vndb.org/v12345")}
               value={vnID}
               onChange={(e) => setVNID(e.target.value.trim())}
             />
@@ -678,10 +692,10 @@ export default function ResourceForm({
               <div className="ml-4 my-2">
                 <FetchVndbCharactersButton
                   vnID={
-                    links
-                      .find((link) => link.label.toLowerCase() === "vndb")
-                      ?.url.split("/")
-                      .pop() ?? ""
+                    parseVndbId(
+                      links.find((link) => link.label.toLowerCase() === "vndb")
+                        ?.url ?? "",
+                    ) ?? ""
                   }
                   onFetch={(fetchedCharacters, fetchedReleaseDate) => {
                     setCharacters(fetchedCharacters);

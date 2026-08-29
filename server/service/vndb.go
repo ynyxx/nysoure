@@ -3,6 +3,7 @@ package service
 // https://api.vndb.org/kana
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -21,8 +22,11 @@ import (
 
 const (
 	tagTypes        = "剧情,游戏类型,人物特点,场景,其他"
+	tagTypeProducer = "厂商"
+	tagTypeYear     = "发售年份"
+	tagTypePlatform = "游戏平台"
+	tagTypeGameType = "游戏类型"
 	tagTypeVA       = "声优"
-	tagTypeProducer = "会社"
 	tagTypePrompt   = `你是一个视觉小说标签分类助手。
 
 请判断下面这个标签最适合归入哪个类型。
@@ -34,8 +38,31 @@ const (
 3. 如果无法确定, 输出"其他"。
 
 标签: %s`
-	vndbTagTypeContent = "cont"
+
+	vndbTagRatingThreshold = 2.0
+
+	// VNDB GetVN helper does not include staff; ResourceParamsFromVNDB queries these fields itself.
+	vnPrefillFields = "title,alttitle,released,image{id,url},description,rating,tags{id,name,category,rating,lie},developers{id,name,original},staff{id,name,original},va{staff{id,name,original},character{id,name,original,image{id,url},vns{role}}},relations{relation,id}"
 )
+
+var sitePlatformOrder = []string{"PC", "Android", "iOS"}
+
+// VNDB platform codes that map onto this site's platform tags.
+var vndbPlatformToSitePlatform = map[string]string{
+	"win": "PC",
+	"lin": "PC",
+	"mac": "PC",
+	"and": "Android",
+	"ios": "iOS",
+}
+
+var vndbTagIDToGameTypeTag = map[string]string{
+	"g32":   "ADV",
+	"g34":   "SLG",
+	"g35":   "RPG",
+	"g43":   "ADV",
+	"g2038": "动态CG",
+}
 
 // GetInfoFromVndb returns character information and release date for a given VNDB ID.
 func GetInfoFromVndb(vnID string, c ctx.Context) ([]CharacterParams, string, error) {
@@ -177,18 +204,33 @@ type ResourceFormPrefill struct {
 
 // PrefillSections controls which sections are fetched from VNDB.
 type PrefillSections struct {
-	Basic      bool // title, alternative_titles, links, release_date
-	Article    bool // article
-	Tags       bool // tags
-	Images     bool // images, cover_id
-	Characters bool // characters
+	Basic       bool // title, alternative_titles, links, release_date
+	Article     bool // article
+	TagsBasic   bool // 厂商, 发售年份, 游戏平台, 游戏类型
+	TagsStaff   bool // 声优, 其它参与者
+	TagsContent bool // 游戏内容 tags
+	Images      bool // images, cover_id
+	Characters  bool // characters
+}
+
+func (s PrefillSections) wantsAnyTags() bool {
+	return s.TagsBasic || s.TagsStaff || s.TagsContent
+}
+
+func enableAllTagSections(s *PrefillSections) {
+	s.TagsBasic = true
+	s.TagsStaff = true
+	s.TagsContent = true
 }
 
 // ParsePrefillSections parses a comma-separated sections string.
 // An empty string means all sections are included.
+// "tags" enables all tag groups for backward compatibility.
 func ParsePrefillSections(raw string) PrefillSections {
 	if raw == "" {
-		return PrefillSections{Basic: true, Article: true, Tags: true, Images: true, Characters: true}
+		s := PrefillSections{Basic: true, Article: true, Images: true, Characters: true}
+		enableAllTagSections(&s)
+		return s
 	}
 	s := PrefillSections{}
 	for _, part := range strings.Split(raw, ",") {
@@ -198,7 +240,13 @@ func ParsePrefillSections(raw string) PrefillSections {
 		case "article":
 			s.Article = true
 		case "tags":
-			s.Tags = true
+			enableAllTagSections(&s)
+		case "tags_basic":
+			s.TagsBasic = true
+		case "tags_staff":
+			s.TagsStaff = true
+		case "tags_content":
+			s.TagsContent = true
 		case "images":
 			s.Images = true
 		case "characters":
@@ -243,7 +291,7 @@ func GetResourceFormPrefillFromVNDB(vnID string, c ctx.Context, sections Prefill
 }
 
 func ResourceParamsFromVNDB(vnid string, sections PrefillSections) (*ResourceParams, error) {
-	vn, err := govndb.GetVN(vnid)
+	vn, err := fetchVNForPrefill(vnid)
 	if err != nil {
 		return nil, model.NewRequestError(fmt.Sprintf("Error fetching vndb: %s", err.Error()))
 	}
@@ -264,31 +312,20 @@ func ResourceParamsFromVNDB(vnid string, sections PrefillSections) (*ResourcePar
 		ReleaseDate: *vn.Released,
 	}
 
-	if sections.Article || sections.Tags {
+	var translatedContentTags []translatedVNDBTag
+	contentTags := contentTagsFromVN(vn.Tags)
+	if sections.Article || (sections.TagsContent && len(contentTags) > 0) {
 		type translationReq struct {
-			Description string `json:"description"`
-			Tags        []struct {
-				Name string `json:"name"`
-				ID   string `json:"id"`
-			} `json:"tags"`
+			Description string              `json:"description"`
+			Tags        []translatedVNDBTag `json:"tags"`
 		}
 
 		data := translationReq{
 			Description: *vn.Description,
 		}
-		for _, tag := range vn.Tags {
-			rating := 0.0
-			if tag.Rating != nil {
-				rating = *tag.Rating
-			}
-			if rating < 2.0 {
-				continue
-			}
-			if tag.Category == vndbTagTypeContent {
-				data.Tags = append(data.Tags, struct {
-					Name string `json:"name"`
-					ID   string `json:"id"`
-				}{
+		if sections.TagsContent {
+			for _, tag := range contentTags {
+				data.Tags = append(data.Tags, translatedVNDBTag{
 					Name: tag.Name,
 					ID:   tag.ID,
 				})
@@ -296,6 +333,9 @@ func ResourceParamsFromVNDB(vnid string, sections PrefillSections) (*ResourcePar
 		}
 		characterNames := make([]string, 0, len(vn.VoiceActors))
 		for _, va := range vn.VoiceActors {
+			if va.Character == nil {
+				continue
+			}
 			characterNames = append(characterNames, va.Character.OriginalName())
 		}
 		aiCtx := "你需要翻译的是一个视觉小说的简介和标签。简介可能包含一些专业术语, 标签可能包含一些专有名词。请将简介和标签翻译为流畅的中文, 并保持标签的ID原样不变。"
@@ -304,70 +344,24 @@ func ResourceParamsFromVNDB(vnid string, sections PrefillSections) (*ResourcePar
 		}
 		data, err = ai.Translate(data, aiCtx)
 		if err != nil {
-			return nil, model.NewInternalServerError("Failed to translate VNDB content")
+			if sections.Article {
+				return nil, model.NewInternalServerError("Failed to translate VNDB content")
+			}
+			log.Error("Failed to translate VNDB content tags: ", err)
+		} else {
+			if sections.Article {
+				params.Article = data.Description
+			}
+			translatedContentTags = data.Tags
 		}
+	}
 
-		if sections.Article {
-			params.Article = data.Description
+	if sections.wantsAnyTags() {
+		tagIDs, err := importTagsFromVNDB(vnid, vn, translatedContentTags, sections)
+		if err != nil {
+			return nil, err
 		}
-
-		if sections.Tags {
-			tagIDs := []uint{}
-			for _, tag := range data.Tags {
-				tagID, err := tagIDFromVNDB(tag.Name, tag.ID)
-				if err != nil {
-					return nil, err
-				}
-				tagIDs = append(tagIDs, tagID)
-			}
-
-			for _, va := range vn.VoiceActors {
-				vaName := va.Staff.OriginalName()
-				vaid := va.Staff.ID
-				tagID, err := tagIDFromVA(vaName, vaid)
-				if err != nil {
-					log.Error("Failed to get tag ID from VA: ", err)
-					continue
-				}
-				tagIDs = append(tagIDs, tagID)
-			}
-
-			for _, producer := range vn.Developers {
-				producerName := producer.Name
-				if producer.Original != nil && *producer.Original != "" {
-					producerName = *producer.Original
-				}
-				tagID, err := tagIDFromProducer(producerName)
-				if err != nil {
-					log.Error("Failed to get tag ID from producer: ", err)
-					continue
-				}
-				tagIDs = append(tagIDs, tagID)
-			}
-
-			for _, staff := range vn.Staff {
-				staffName := staff.OriginalName()
-				tagID, err := tagIDFromStaffIfExists(staffName)
-				if err != nil {
-					log.Error("Failed to get tag ID from staff: ", err)
-					continue
-				}
-				if tagID != 0 {
-					tagIDs = append(tagIDs, tagID)
-				}
-			}
-
-			// 标签去重
-			tagIDSet := make(map[uint]struct{})
-			uniqueTagIDs := []uint{}
-			for _, id := range tagIDs {
-				if _, exists := tagIDSet[id]; !exists {
-					tagIDSet[id] = struct{}{}
-					uniqueTagIDs = append(uniqueTagIDs, id)
-				}
-			}
-			params.Tags = uniqueTagIDs
-		}
+		params.Tags = tagIDs
 	}
 
 	if sections.Images {
@@ -395,6 +389,215 @@ func ResourceParamsFromVNDB(vnid string, sections PrefillSections) (*ResourcePar
 	}
 
 	return params, nil
+}
+
+type translatedVNDBTag struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+func importTagsFromVNDB(vnid string, vn *govndb.VN, contentTags []translatedVNDBTag, sections PrefillSections) ([]uint, error) {
+	tagIDs := make([]uint, 0)
+
+	if sections.TagsBasic {
+		for _, producer := range vn.Developers {
+			producerName := producer.Name
+			if producer.Original != nil && *producer.Original != "" {
+				producerName = *producer.Original
+			}
+			tagID, err := tagIDFromNameAndType(producerName, tagTypeProducer)
+			if err != nil {
+				log.Error("Failed to get tag ID from producer: ", err)
+				continue
+			}
+			tagIDs = appendTagID(tagIDs, tagID)
+		}
+
+		if year := yearTagNameFromReleased(*vn.Released); year != "" {
+			tagID, err := tagIDFromNameAndType(year, tagTypeYear)
+			if err != nil {
+				log.Error("Failed to get tag ID from release year: ", err)
+			} else {
+				tagIDs = appendTagID(tagIDs, tagID)
+			}
+		}
+
+		platforms, err := querySitePlatformsFromReleases(vnid)
+		if err != nil {
+			log.Error("Failed to query VNDB release platforms: ", err)
+		} else {
+			for _, platform := range platforms {
+				tagID, err := tagIDFromNameAndType(platform, tagTypePlatform)
+				if err != nil {
+					log.Error("Failed to get tag ID from platform: ", err)
+					continue
+				}
+				tagIDs = appendTagID(tagIDs, tagID)
+			}
+		}
+
+		for _, name := range gameTypeTagNamesFromVNTags(vn.Tags) {
+			tagID, err := tagIDFromNameAndType(name, tagTypeGameType)
+			if err != nil {
+				log.Error("Failed to get tag ID from game type: ", err)
+				continue
+			}
+			tagIDs = appendTagID(tagIDs, tagID)
+		}
+	}
+
+	if sections.TagsStaff {
+		for _, va := range vn.VoiceActors {
+			if va.Staff == nil {
+				continue
+			}
+			vaName := va.Staff.OriginalName()
+			vaid := va.Staff.ID
+			tagID, err := tagIDFromVA(vaName, vaid)
+			if err != nil {
+				log.Error("Failed to get tag ID from VA: ", err)
+				continue
+			}
+			tagIDs = appendTagID(tagIDs, tagID)
+		}
+
+		for _, staff := range vn.Staff {
+			staffName := staff.OriginalName()
+			tagID, err := tagIDFromStaffIfExists(staffName)
+			if err != nil {
+				log.Error("Failed to get tag ID from staff: ", err)
+				continue
+			}
+			tagIDs = appendTagID(tagIDs, tagID)
+		}
+	}
+
+	if sections.TagsContent {
+		for _, tag := range contentTags {
+			tagID, err := tagIDFromVNDB(tag.Name, tag.ID)
+			if err != nil {
+				return nil, err
+			}
+			tagIDs = appendTagID(tagIDs, tagID)
+		}
+	}
+
+	return uniqueTagIDs(tagIDs), nil
+}
+
+func fetchVNForPrefill(vnid string) (*govndb.VN, error) {
+	client := govndb.New()
+	resp, err := client.QueryVNs(context.Background(), govndb.QueryRequest{
+		Filters: []any{"id", "=", vnid},
+		Fields:  vnPrefillFields,
+		Results: 1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Results) == 0 {
+		return nil, fmt.Errorf("vn %s not found", vnid)
+	}
+	return &resp.Results[0], nil
+}
+
+func querySitePlatformsFromReleases(vnid string) ([]string, error) {
+	client := govndb.New()
+	found := make(map[string]struct{})
+	page := 1
+	for {
+		resp, err := client.QueryReleases(context.Background(), govndb.QueryRequest{
+			Filters: []any{"vn", "=", []any{"id", "=", vnid}},
+			Fields:  "platforms",
+			Results: 100,
+			Page:    page,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, release := range resp.Results {
+			collectSitePlatforms(found, release.Platforms)
+		}
+		if len(found) == len(sitePlatformOrder) || !resp.More {
+			break
+		}
+		page++
+	}
+	return sitePlatformsInOrder(found), nil
+}
+
+func collectSitePlatforms(dst map[string]struct{}, vndbPlatforms []string) {
+	for _, platform := range vndbPlatforms {
+		if sitePlatform, ok := vndbPlatformToSitePlatform[platform]; ok {
+			dst[sitePlatform] = struct{}{}
+		}
+	}
+}
+
+func sitePlatformsInOrder(found map[string]struct{}) []string {
+	platforms := make([]string, 0, len(found))
+	for _, name := range sitePlatformOrder {
+		if _, ok := found[name]; ok {
+			platforms = append(platforms, name)
+		}
+	}
+	return platforms
+}
+
+func yearTagNameFromReleased(released string) string {
+	released = strings.TrimSpace(released)
+	if len(released) < 4 {
+		return ""
+	}
+	year := released[:4]
+	for _, c := range year {
+		if c < '0' || c > '9' {
+			return ""
+		}
+	}
+	return year
+}
+
+func vnTagAccepted(tag govndb.VNTag) bool {
+	if tag.Lie != nil && *tag.Lie {
+		return false
+	}
+	rating := 0.0
+	if tag.Rating != nil {
+		rating = *tag.Rating
+	}
+	return rating >= vndbTagRatingThreshold
+}
+
+func contentTagsFromVN(tags []govndb.VNTag) []govndb.VNTag {
+	contentTags := make([]govndb.VNTag, 0)
+	for _, tag := range tags {
+		if tag.Category != govndb.TagCategoryContent || !vnTagAccepted(tag) {
+			continue
+		}
+		contentTags = append(contentTags, tag)
+	}
+	return contentTags
+}
+
+func gameTypeTagNamesFromVNTags(tags []govndb.VNTag) []string {
+	seen := make(map[string]struct{})
+	names := make([]string, 0)
+	for _, tag := range tags {
+		if tag.Category != govndb.TagCategoryTechnical || !vnTagAccepted(tag) {
+			continue
+		}
+		name, ok := vndbTagIDToGameTypeTag[tag.ID]
+		if !ok || name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names
 }
 
 func tagIDFromVNDB(name string, vnid string) (uint, error) {
@@ -441,6 +644,43 @@ func decideTagType(name string) (string, error) {
 	}
 
 	return "", model.NewInternalServerError(fmt.Sprintf("Invalid tag type returned by AI: %s", response))
+}
+
+func tagIDFromNameAndType(name string, tagType string) (uint, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, nil
+	}
+	t, err := dao.GetTagByName(name)
+	if err != nil && !model.IsNotFoundError(err) {
+		return 0, err
+	} else if model.IsNotFoundError(err) {
+		t, err = dao.CreateTagWithType(name, tagType)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return t.ID, nil
+}
+
+func appendTagID(ids []uint, id uint) []uint {
+	if id == 0 {
+		return ids
+	}
+	return append(ids, id)
+}
+
+func uniqueTagIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	unique := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 func tagIDFromVA(name string, vnid string) (uint, error) {
@@ -490,19 +730,6 @@ func tagIDFromVA(name string, vnid string) (uint, error) {
 				return 0, err
 			}
 			return t.ID, nil
-		}
-	}
-	return t.ID, nil
-}
-
-func tagIDFromProducer(name string) (uint, error) {
-	t, err := dao.GetTagByName(name)
-	if err != nil && !model.IsNotFoundError(err) {
-		return 0, err
-	} else if model.IsNotFoundError(err) {
-		t, err = dao.CreateTagWithType(name, tagTypeProducer)
-		if err != nil {
-			return 0, err
 		}
 	}
 	return t.ID, nil
