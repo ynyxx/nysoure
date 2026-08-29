@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"nysoure/server/model"
+	"nysoure/server/utils"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -522,7 +523,7 @@ func RandomResource() (model.Resource, error) {
 	}
 }
 
-func GetResourcesIdWithTag(tagID uint) ([]uint, error) {
+func tagIDsIncludingAliases(tagID uint) ([]uint, error) {
 	tag, err := GetTagByID(tagID)
 	if err != nil {
 		return nil, err
@@ -533,29 +534,100 @@ func GetResourcesIdWithTag(tagID uint) ([]uint, error) {
 			return nil, err
 		}
 	}
-	var tagIds []uint
-	tagIds = append(tagIds, tag.ID)
+	tagIDs := make([]uint, 0, 1+len(tag.Aliases))
+	tagIDs = append(tagIDs, tag.ID)
 	for _, alias := range tag.Aliases {
-		tagIds = append(tagIds, alias.ID)
+		tagIDs = append(tagIDs, alias.ID)
+	}
+	return tagIDs, nil
+}
+
+func GetResourcesIdWithTag(tagID uint) ([]uint, error) {
+	return getResourceIDsWithTag(tagID, 10000)
+}
+
+func GetAllResourceIDsWithTag(tagID uint) ([]uint, error) {
+	return getResourceIDsWithTag(tagID, 0)
+}
+
+func getResourceIDsWithTag(tagID uint, limit int) ([]uint, error) {
+	tagIDs, err := tagIDsIncludingAliases(tagID)
+	if err != nil {
+		return nil, err
 	}
 	var result []model.Resource
 	subQuery := db.Table("resource_tags").
 		Select("resource_id").
-		Where("tag_id IN ?", tagIds).
+		Where("tag_id IN ?", tagIDs).
 		Group("resource_id")
-	if err := db.Model(&model.Resource{}).
+	query := db.Model(&model.Resource{}).
 		Where("id IN (?)", subQuery).
 		Order("created_at DESC").
-		Limit(10000).
-		Select("id", "created_at").
-		Find(&result).
-		Error; err != nil {
+		Select("id", "created_at")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if err := query.Find(&result).Error; err != nil {
 		return nil, err
 	}
 
 	ids := make([]uint, len(result))
 	for i, r := range result {
 		ids[i] = r.ID
+	}
+	return ids, nil
+}
+
+func FilterResourceIDsByTag(ids []uint, tagID uint) ([]uint, error) {
+	if len(ids) == 0 {
+		return []uint{}, nil
+	}
+	tagIDs, err := tagIDsIncludingAliases(tagID)
+	if err != nil {
+		return nil, err
+	}
+	var matched []uint
+	if err := db.Table("resource_tags").
+		Where("tag_id IN ? AND resource_id IN ?", tagIDs, ids).
+		Distinct("resource_id").
+		Pluck("resource_id", &matched).Error; err != nil {
+		return nil, err
+	}
+	return utils.IntersectPreserveOrder(ids, matched), nil
+}
+
+func applyReleaseDateFilter(query *gorm.DB, from, to *time.Time) *gorm.DB {
+	query = query.Where("release_date IS NOT NULL")
+	if from != nil {
+		query = query.Where("release_date >= ?", *from)
+	}
+	if to != nil {
+		query = query.Where("release_date < ?", to.AddDate(0, 0, 1))
+	}
+	return query
+}
+
+func FilterResourceIDsByReleaseDate(ids []uint, from, to *time.Time) ([]uint, error) {
+	if len(ids) == 0 {
+		return []uint{}, nil
+	}
+	query := applyReleaseDateFilter(db.Model(&model.Resource{}).Where("id IN ?", ids), from, to)
+	var matched []uint
+	if err := query.Pluck("id", &matched).Error; err != nil {
+		return nil, err
+	}
+	return utils.IntersectPreserveOrder(ids, matched), nil
+}
+
+func GetResourceIDsByReleaseDate(from, to *time.Time) ([]uint, error) {
+	query := applyReleaseDateFilter(db.Model(&model.Resource{}), from, to).
+		Order("release_date DESC, id DESC")
+	var ids []uint
+	if err := query.Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	if ids == nil {
+		ids = []uint{}
 	}
 	return ids, nil
 }

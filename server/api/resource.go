@@ -9,6 +9,8 @@ import (
 	"nysoure/server/service"
 	"nysoure/server/utils"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v3/log"
 
@@ -216,11 +218,31 @@ func handleListResourcesWithTag(c fiber.Ctx) error {
 	})
 }
 
-func handleSearchResources(c fiber.Ctx) error {
-	query := c.Query("keyword")
-	if query == "" {
-		return model.NewRequestError("Search query is required")
+func parseSearchDate(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
 	}
+	parsed, err := time.ParseInLocation("2006-01-02", value, time.UTC)
+	if err != nil {
+		return nil, model.NewRequestError("Invalid date format, expected YYYY-MM-DD")
+	}
+	return &parsed, nil
+}
+
+func parseSearchTags(value string) []string {
+	var tags []string
+	for _, tag := range strings.Split(value, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return utils.RemoveDuplicate(tags)
+}
+
+func handleSearchResources(c fiber.Ctx) error {
+	query := strings.TrimSpace(c.Query("keyword"))
 	pageStr := c.Query("page")
 	if pageStr == "" {
 		pageStr = "1"
@@ -229,7 +251,21 @@ func handleSearchResources(c fiber.Ctx) error {
 	if err != nil {
 		return model.NewRequestError("Invalid page number")
 	}
-	resources, totalPages, err := service.SearchResource(query, page)
+	releaseFrom, err := parseSearchDate(c.Query("release_from"))
+	if err != nil {
+		return err
+	}
+	releaseTo, err := parseSearchDate(c.Query("release_to"))
+	if err != nil {
+		return err
+	}
+	resources, totalPages, err := service.SearchResources(service.ResourceSearchParams{
+		Keyword:     query,
+		Tags:        parseSearchTags(c.Query("tags")),
+		ReleaseFrom: releaseFrom,
+		ReleaseTo:   releaseTo,
+		Page:        page,
+	})
 	if err != nil {
 		return err
 	}

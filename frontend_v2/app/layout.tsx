@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router";
 import { MdArrowUpward, MdClose, MdCloudUpload, MdMenu, MdOutlinePerson, MdOutlinePublish, MdShuffle, MdTimeline, MdInfoOutline, MdOutlineLabel, MdSearch, MdLogout, MdNotifications, MdOutlineSettings } from "react-icons/md";
 import { useTranslation } from "./hook/i18n.js";
@@ -8,7 +8,6 @@ import { ThemeSwitcher } from "./components/theme_switcher.js";
 import { network } from "./network/network.js";
 import { Background } from "./components/background.js";
 import { uploadingManager, UploadingTask, UploadingStatus } from "./network/uploading.js";
-import { Debounce } from "./utils/debounce.js";
 
 export default function Layout() {
   const { server_name } = useConfig();
@@ -490,180 +489,16 @@ function UploadingTaskTile({ task }: { task: UploadingTask }) {
 
 function SearchBar() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isSuggesting, setIsSuggesting] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-  const debounce = useRef(new Debounce(250));
-  const requestId = useRef(0);
   const { t } = useTranslation();
 
-  useEffect(() => {
-    return () => debounce.current.cancel();
-  }, []);
-
-  const closeSearchDialog = () => {
-    const dialog = document.getElementById(
-      "search_dialog",
-    ) as HTMLDialogElement | null;
-    if (dialog) {
-      dialog.close();
-    }
-  };
-
-  const doSearch = (keyword = search) => {
-    const trimmed = keyword.trim();
-    if (trimmed.length === 0) {
-      return;
-    }
-    closeSearchDialog();
-    setSuggestions([]);
-    setIsFocused(false);
-    const replace = window.location.pathname === "/search";
-    navigate(`/search?keyword=${encodeURIComponent(trimmed)}`, { replace: replace });
-  };
-
-  const updateSuggestions = (keyword: string) => {
-    const trimmed = keyword.trim();
-    requestId.current += 1;
-    const currentRequestId = requestId.current;
-    if (trimmed.length === 0) {
-      debounce.current.cancel();
-      setSuggestions([]);
-      setIsSuggesting(false);
-      return;
-    }
-    setIsSuggesting(true);
-    debounce.current.run(async () => {
-      const res = await network.searchTagSuggestions(trimmed);
-      if (currentRequestId !== requestId.current) {
-        return;
-      }
-      setIsSuggesting(false);
-      if (!res.success) {
-        setSuggestions([]);
-        return;
-      }
-      setSuggestions(res.data ?? []);
-    });
-  };
-
-  const handleSearchChange = (value: string) => {
-    setSearch(value);
-    updateSuggestions(value);
-  };
-
-  const showSuggestions = isFocused && (suggestions.length > 0 || isSuggesting);
-
-  const searchField = (
-    <div className="relative w-full sm:w-64">
-      <label className="input input-primary w-full bg-base-100/60! shadow-xs">
-        <MdSearch className="opacity-50 shrink-0" size={18} />
-        <form
-          className="w-full"
-          onSubmit={(e) => {
-            e.preventDefault();
-            doSearch();
-          }}
-        >
-          <input
-            type="search"
-            className="w-full"
-            required
-            autoComplete="off"
-            placeholder={t("Search")}
-            value={search}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            onChange={(e) => handleSearchChange(e.target.value)}
-          />
-        </form>
-      </label>
-      {showSuggestions && (
-        <div
-          className="absolute left-0 right-0 top-full mt-2 z-50 rounded-box border border-base-300 bg-base-100 shadow-lg overflow-hidden"
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          {isSuggesting ? (
-            <div className="flex items-center gap-2 px-3 py-2 text-sm text-base-content/70">
-              <span className="loading loading-spinner loading-xs" />
-              <span>{t("Searching...")}</span>
-            </div>
-          ) : (
-            <ul className="menu menu-sm p-1 w-full" style={{borderRadius: "4px"}}>
-              {suggestions.map((suggestion) => (
-                <li key={suggestion}>
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-start gap-2"
-                    onClick={() => {
-                      setSearch(suggestion);
-                      doSearch(suggestion);
-                    }}
-                  >
-                    <MdOutlineLabel size={16} className="shrink-0 opacity-70" />
-                    <span className="truncate">{suggestion}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
   return (
-    <>
-      {/* Desktop: show search field directly */}
-      <div className="hidden sm:block">
-        {searchField}
-      </div>
-
-      {/* Mobile: show search button and dialog */}
-      <div className="sm:hidden">
-        <button
-          className="btn btn-circle btn-ghost"
-          onClick={() => {
-            const dialog = document.getElementById(
-              "search_dialog",
-            ) as HTMLDialogElement;
-            dialog.showModal();
-          }}
-        >
-          <MdSearch size={24} />
-        </button>
-        <dialog id="search_dialog" className="modal">
-          <div className="modal-box">
-            <form method="dialog">
-              <button className="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-                ✕
-              </button>
-            </form>
-            <h3 className="text-lg font-bold">{t("Search")}</h3>
-            <div className="h-4" />
-            {searchField}
-            <div className="h-4" />
-            <div className="flex flex-row-reverse">
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  if (search.length === 0) {
-                    return;
-                  }
-                  const dialog = document.getElementById(
-                    "search_dialog",
-                  ) as HTMLDialogElement;
-                  dialog.close();
-                  doSearch();
-                }}
-              >
-                {t("Search")}
-              </button>
-            </div>
-          </div>
-        </dialog>
-      </div>
-    </>
+    <button
+      type="button"
+      className="btn btn-ghost btn-circle"
+      onClick={() => navigate("/search")}
+      aria-label={t("Search")}
+    >
+      <MdSearch size={24} />
+    </button>
   );
 }

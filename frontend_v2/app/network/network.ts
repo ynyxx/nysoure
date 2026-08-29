@@ -432,13 +432,29 @@ class Network {
   async searchResources(
     keyword: string,
     page: number,
+    options?: {
+      tags?: string[];
+      releaseFrom?: string;
+      releaseTo?: string;
+    },
   ): Promise<PageResponse<Resource>> {
+    const params: Record<string, string | number> = { page };
+    const trimmedKeyword = keyword.trim();
+    if (trimmedKeyword) {
+      params.keyword = trimmedKeyword;
+    }
+    if (options?.tags && options.tags.length > 0) {
+      params.tags = options.tags.join(",");
+    }
+    if (options?.releaseFrom) {
+      params.release_from = options.releaseFrom;
+    }
+    if (options?.releaseTo) {
+      params.release_to = options.releaseTo;
+    }
     return this._callApi(() =>
       axios.get(`${this.apiBaseUrl}/resource/search`, {
-        params: {
-          keyword,
-          page,
-        },
+        params,
       }),
     );
   }

@@ -6,15 +6,18 @@ export default function Button({
   className,
   disabled,
   isLoading,
+  type,
 }: {
   children: ReactNode;
   onClick?: () => void;
   className?: string;
   disabled?: boolean;
   isLoading?: boolean;
+  type?: "button" | "submit" | "reset";
 }) {
   return (
     <button
+      type={type}
       className={`btn ${className} ${disabled ? "btn-disabled" : ""} h-9`}
       onClick={onClick}
       disabled={disabled}

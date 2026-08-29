@@ -28,7 +28,16 @@ import (
 
 const (
 	maxSearchQueryLength = 100
+	maxSearchTagCount    = 20
 )
+
+type ResourceSearchParams struct {
+	Keyword     string
+	Tags        []string
+	ReleaseFrom *time.Time
+	ReleaseTo   *time.Time
+	Page        int
+}
 
 type RelationParam struct {
 	ToID        uint   `json:"to_id"`
@@ -461,12 +470,125 @@ func searchWithKeyword(keyword string) ([]uint, error) {
 }
 
 func SearchResource(query string, page int) ([]model.ResourceView, int, error) {
-	if len([]rune(query)) > maxSearchQueryLength {
+	return SearchResources(ResourceSearchParams{
+		Keyword: query,
+		Page:    page,
+	})
+}
+
+func SearchResources(params ResourceSearchParams) ([]model.ResourceView, int, error) {
+	keyword := strings.TrimSpace(params.Keyword)
+	tags := make([]string, 0, len(params.Tags))
+	for _, tag := range params.Tags {
+		tag = strings.TrimSpace(tag)
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	tags = utils.RemoveDuplicate(tags)
+
+	if len([]rune(keyword)) > maxSearchQueryLength {
 		return nil, 0, model.NewRequestError("Search query is too long")
 	}
+	if len(tags) > maxSearchTagCount {
+		return nil, 0, model.NewRequestError("Too many tags")
+	}
+	if params.ReleaseFrom != nil && params.ReleaseTo != nil && params.ReleaseFrom.After(*params.ReleaseTo) {
+		return nil, 0, model.NewRequestError("Invalid date range")
+	}
 
+	hasKeyword := keyword != ""
+	hasTags := len(tags) > 0
+	hasDate := params.ReleaseFrom != nil || params.ReleaseTo != nil
+	if !hasKeyword && !hasTags && !hasDate {
+		return nil, 0, model.NewRequestError("At least one search condition is required")
+	}
+
+	page := params.Page
+	if page < 1 {
+		page = 1
+	}
+
+	var ids []uint
+	hasIDs := false
+
+	if hasKeyword {
+		keywordIDs, err := searchResourceIDsByKeyword(keyword)
+		if err != nil {
+			return nil, 0, err
+		}
+		ids = keywordIDs
+		hasIDs = true
+		if len(ids) == 0 {
+			return []model.ResourceView{}, 0, nil
+		}
+	}
+
+	for _, tagName := range tags {
+		t, err := dao.GetTagByName(tagName)
+		if err != nil {
+			if model.IsNotFoundError(err) {
+				return []model.ResourceView{}, 0, nil
+			}
+			return nil, 0, err
+		}
+		if hasIDs {
+			ids, err = dao.FilterResourceIDsByTag(ids, t.ID)
+		} else {
+			ids, err = dao.GetAllResourceIDsWithTag(t.ID)
+			hasIDs = true
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(ids) == 0 {
+			return []model.ResourceView{}, 0, nil
+		}
+	}
+
+	if hasDate {
+		var err error
+		if hasIDs {
+			ids, err = dao.FilterResourceIDsByReleaseDate(ids, params.ReleaseFrom, params.ReleaseTo)
+		} else {
+			ids, err = dao.GetResourceIDsByReleaseDate(params.ReleaseFrom, params.ReleaseTo)
+			hasIDs = true
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(ids) == 0 {
+			return []model.ResourceView{}, 0, nil
+		}
+	}
+
+	if !hasIDs {
+		return []model.ResourceView{}, 0, nil
+	}
+
+	total := len(ids)
+	totalPages := (total + pageSize - 1) / pageSize
 	start := (page - 1) * pageSize
+	if start >= total {
+		return []model.ResourceView{}, totalPages, nil
+	}
 	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	resourcesPage, err := dao.BatchGetResources(ids[start:end])
+	if err != nil {
+		return nil, 0, err
+	}
+	views := make([]model.ResourceView, 0, len(resourcesPage))
+	for _, r := range resourcesPage {
+		views = append(views, r.ToView())
+	}
+	return views, totalPages, nil
+}
+
+func searchResourceIDsByKeyword(query string) ([]uint, error) {
 	resources := make([]uint, 0)
 
 	checkTag := func(tag string) error {
@@ -491,20 +613,17 @@ func SearchResource(query string, page int) ([]model.ResourceView, int, error) {
 		return nil
 	}
 
-	// check tag
 	if err := checkTag(query); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	// check tag after removing spaces
 	trimmed := utils.RemoveSpaces(query)
 	if trimmed != query {
 		if err := checkTag(trimmed); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 	}
 
-	// split query to search
 	keywords := splitQuery(query)
 	var temp []uint
 	haveTag := false
@@ -512,7 +631,7 @@ func SearchResource(query string, page int) ([]model.ResourceView, int, error) {
 		if len([]rune(keyword)) <= maxTagLength {
 			exists, err := dao.ExistsTag(keyword)
 			if err != nil {
-				return nil, 0, err
+				return nil, err
 			}
 			if exists {
 				haveTag = true
@@ -531,7 +650,7 @@ func SearchResource(query string, page int) ([]model.ResourceView, int, error) {
 
 			res, err := searchWithKeyword(keyword)
 			if err != nil {
-				return nil, 0, err
+				return nil, err
 			}
 			if len(res) == 0 && search.IsStopWord(keyword) {
 				continue
@@ -540,51 +659,18 @@ func SearchResource(query string, page int) ([]model.ResourceView, int, error) {
 				temp = utils.RemoveDuplicate(res)
 				first = false
 			} else {
-				temp1 := make([]uint, 0)
-				for _, id := range temp {
-					for _, id2 := range res {
-						if id == id2 {
-							temp1 = append(temp1, id)
-							break
-						}
-					}
-				}
-				temp = temp1
+				temp = utils.IntersectPreserveOrder(temp, res)
 			}
 		}
 	} else {
 		res, err := searchWithKeyword(query)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		temp = res
 	}
 	resources = append(resources, temp...)
-	resources = utils.RemoveDuplicate(resources)
-
-	if start >= len(resources) {
-		return []model.ResourceView{}, 0, nil
-	}
-
-	total := len(resources)
-	totalPages := (total + pageSize - 1) / pageSize
-	if start >= total {
-		return []model.ResourceView{}, totalPages, nil
-	}
-	if end > total {
-		end = total
-	}
-	idsPage := resources[start:end]
-
-	resourcesPage, err := dao.BatchGetResources(idsPage)
-	if err != nil {
-		return nil, 0, err
-	}
-	var views []model.ResourceView
-	for _, r := range resourcesPage {
-		views = append(views, r.ToView())
-	}
-	return views, totalPages, nil
+	return utils.RemoveDuplicate(resources), nil
 }
 
 func DeleteResource(c ctx.Context, id uint) error {
