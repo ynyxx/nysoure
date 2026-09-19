@@ -12,6 +12,7 @@ import { useTranslation } from "../hook/i18n";
 import { Debounce } from "../utils/debounce";
 import { ErrorAlert } from "./alert";
 import TagInput, { QuickAddTagDialog } from "./tag_input";
+import TagTemplatePanel from "./tag_template";
 import {
   ImageDropArea,
   SelectAndUploadImageButton,
@@ -443,7 +444,7 @@ export default function ResourceForm({
             );
           })}
         </p>
-        <div className={"flex items-center"}>
+        <div className={"flex flex-wrap items-center gap-2"}>
           <TagInput
             onAdd={(tag) => {
               setTags((prev) => {
@@ -455,8 +456,21 @@ export default function ResourceForm({
               });
             }}
           />
-          <span className={"w-4"} />
           <QuickAddTagDialog
+            onAdded={(tags) => {
+              setTags((prev) => {
+                const newTags = [...prev];
+                for (const tag of tags) {
+                  const existingTag = newTags.find((t) => t.id === tag.id);
+                  if (!existingTag) {
+                    newTags.push(tag);
+                  }
+                }
+                return newTags;
+              });
+            }}
+          />
+          <TagTemplatePanel
             onAdded={(tags) => {
               setTags((prev) => {
                 const newTags = [...prev];

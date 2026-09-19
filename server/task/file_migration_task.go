@@ -128,9 +128,10 @@ func (t *FileMigrationTask) Run() error {
 			token, expiresAt := utils.GenerateDownloadToken(u)
 			q.Set("token", token)
 			q.Set("expires_at", strconv.FormatInt(expiresAt, 10))
+			u.RawQuery = q.Encode()
+			sourcePathOrURL = u.String()
 		}
-		u.RawQuery = q.Encode()
-		_, err = downloadFileWithProgress(t.ctx, u.String(), tempPath, func(transferred int64) {
+		_, err = downloadFileWithProgress(t.ctx, sourcePathOrURL, tempPath, func(transferred int64) {
 			t.transferredBytes.Store(transferred)
 		})
 		if err != nil {

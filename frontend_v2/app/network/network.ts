@@ -26,6 +26,7 @@ import type {
   VndbResourcePrefill,
   Config,
   ServerTask,
+  TagTemplate,
 } from "./models.ts";
 
 class Network {
@@ -297,6 +298,52 @@ class Network {
     );
   }
 
+  async listTagTemplates(): Promise<Response<TagTemplate[]>> {
+    return this._callApi(() => axios.get(`${this.apiBaseUrl}/tag-template`));
+  }
+
+  async createTagTemplate(
+    name: string,
+    content: string,
+  ): Promise<Response<TagTemplate>> {
+    return this._callApi(() =>
+      axios.post(`${this.apiBaseUrl}/tag-template`, {
+        name,
+        content,
+      }),
+    );
+  }
+
+  async updateTagTemplate(
+    id: number,
+    name: string,
+    content: string,
+  ): Promise<Response<TagTemplate>> {
+    return this._callApi(() =>
+      axios.put(`${this.apiBaseUrl}/tag-template/${id}`, {
+        name,
+        content,
+      }),
+    );
+  }
+
+  async deleteTagTemplate(id: number): Promise<Response<void>> {
+    return this._callApi(() =>
+      axios.delete(`${this.apiBaseUrl}/tag-template/${id}`),
+    );
+  }
+
+  async applyTagTemplate(
+    id: number,
+    params: Record<string, string> = {},
+  ): Promise<Response<Tag[]>> {
+    return this._callApi(() =>
+      axios.post(`${this.apiBaseUrl}/tag-template/${id}/apply`, {
+        params,
+      }),
+    );
+  }
+
   async getTagByName(name: string): Promise<Response<Tag>> {
     return this._callApi(() => axios.get(`${this.apiBaseUrl}/tag/${encodeURIComponent(name)}`));
   }
@@ -436,6 +483,7 @@ class Network {
       tags?: string[];
       releaseFrom?: string;
       releaseTo?: string;
+      sort?: RSort;
     },
   ): Promise<PageResponse<Resource>> {
     const params: Record<string, string | number> = { page };
@@ -451,6 +499,9 @@ class Network {
     }
     if (options?.releaseTo) {
       params.release_to = options.releaseTo;
+    }
+    if (options?.sort !== undefined) {
+      params.sort = options.sort;
     }
     return this._callApi(() =>
       axios.get(`${this.apiBaseUrl}/resource/search`, {

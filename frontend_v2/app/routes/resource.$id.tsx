@@ -2487,7 +2487,7 @@ function KunFile({
         </div>
         <div className={"flex flex-row items-center"}>
           <a
-            href={`https://www.moyu.moe/patch/${patchID}/resource#kun_patch_resource_${file.id}`}
+            href={`https://www.moyu.moe/resource/${file.id}`}
             target="_blank"
             className={"btn btn-primary btn-soft btn-square"}
           >

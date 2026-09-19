@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -36,6 +37,7 @@ type Link struct {
 type ResourceView struct {
 	ID          uint       `json:"id"`
 	Title       string     `json:"title"`
+	Subtitle    string     `json:"subtitle,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ReleaseDate *time.Time `json:"release_date,omitempty"`
 	Tags        []TagView  `json:"tags"`
@@ -109,12 +111,22 @@ func (r *Resource) ToView() ResourceView {
 	return ResourceView{
 		ID:          r.ID,
 		Title:       r.Title,
+		Subtitle:    firstNonEmpty(r.AlternativeTitles),
 		CreatedAt:   r.CreatedAt,
 		ReleaseDate: r.ReleaseDate,
 		Tags:        tags,
 		Image:       image,
 		Author:      r.User.ToView(),
 	}
+}
+
+func firstNonEmpty(ss []string) string {
+	for _, s := range ss {
+		if t := strings.TrimSpace(s); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 func (r *Resource) ToDetailView() ResourceDetailView {

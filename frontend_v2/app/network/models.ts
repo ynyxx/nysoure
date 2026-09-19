@@ -53,6 +53,15 @@ export interface TagWithCount extends Tag {
   resources_count: number;
 }
 
+export interface TagTemplate {
+  id: number;
+  name: string;
+  content: string;
+  params: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RelationParam {
   to_id: number;
   description: string;
@@ -122,6 +131,7 @@ export interface RLink {
 export interface Resource {
   id: number;
   title: string;
+  subtitle?: string;
   created_at: string;
   release_date?: string;
   tags: Tag[];
@@ -255,6 +265,7 @@ export enum RSort {
   DownloadsDesc = 5,
   ReleaseDateAsc = 6,
   ReleaseDateDesc = 7,
+  Relevance = 8,
 }
 
 export enum ActivityType {

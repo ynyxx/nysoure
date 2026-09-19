@@ -49,3 +49,55 @@ func TestParseSearchTags(t *testing.T) {
 		t.Fatalf("expected empty tags, got %#v", got)
 	}
 }
+
+func TestParseSearchSort(t *testing.T) {
+	t.Run("empty keeps original order", func(t *testing.T) {
+		got, err := parseSearchSort("  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != nil {
+			t.Fatalf("expected nil, got %v", *got)
+		}
+	})
+
+	t.Run("valid", func(t *testing.T) {
+		got, err := parseSearchSort("3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil {
+			t.Fatal("expected sort")
+		}
+		if *got != 3 {
+			t.Fatalf("got %v, want 3", *got)
+		}
+	})
+
+	t.Run("relevance", func(t *testing.T) {
+		got, err := parseSearchSort("8")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil {
+			t.Fatal("expected sort")
+		}
+		if *got != 8 {
+			t.Fatalf("got %v, want 8", *got)
+		}
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		_, err := parseSearchSort("time")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("out of range", func(t *testing.T) {
+		_, err := parseSearchSort("9")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}

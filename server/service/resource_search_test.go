@@ -1,6 +1,7 @@
 package service
 
 import (
+	"nysoure/server/model"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +55,17 @@ func TestSearchResourcesValidation(t *testing.T) {
 			t.Fatal("expected error")
 		}
 		if !strings.Contains(err.Error(), "too long") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("sort does not replace required conditions", func(t *testing.T) {
+		sort := model.RSortTimeDesc
+		_, _, err := SearchResources(ResourceSearchParams{Sort: &sort})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "At least one search condition is required") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})

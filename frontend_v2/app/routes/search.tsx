@@ -6,11 +6,12 @@ import { useTranslation } from "../hook/i18n";
 import { network } from "../network/network";
 import { configFromMatches } from "../hook/config";
 import ResourcesView from "~/components/resources_view";
+import ResourceSortControl from "~/components/resource_sort_control";
 import TagSelector from "~/components/tag_selector";
 import DatePicker from "~/components/date_picker";
 import Button from "~/components/button";
 import { InfoAlert } from "~/components/alert";
-import type { PageResponse, Resource } from "../network/models";
+import { RSort, type PageResponse, type Resource } from "../network/models";
 
 type SearchFilters = {
   keyword: string;
@@ -38,6 +39,17 @@ function parseTagsParam(value: string | null): string[] {
 function parseDateParam(value: string | null): string {
   const date = value?.trim() ?? "";
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+}
+
+function parseSortParam(value: string | null): RSort {
+  if (!value) {
+    return RSort.Relevance;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > RSort.Relevance) {
+    return RSort.Relevance;
+  }
+  return parsed as RSort;
 }
 
 function parseSearchFilters(params: URLSearchParams): SearchFilters {
@@ -107,6 +119,7 @@ export function meta({ matches, location }: Route.MetaArgs) {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const filters = parseSearchFilters(url.searchParams);
+  const sort = parseSortParam(url.searchParams.get("sort"));
 
   let firstPageResults: PageResponse<Resource> | undefined;
   let allTags: Awaited<ReturnType<typeof network.getAllTags>>["data"] = [];
@@ -121,6 +134,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       tags: filters.tags,
       releaseFrom: filters.releaseFrom,
       releaseTo: filters.releaseTo,
+      sort,
     });
     if (result.success) {
       firstPageResults = result;
@@ -130,12 +144,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   return {
     allTags: allTags ?? [],
     firstPageResults,
+    sort,
   };
 }
 
 export default function SearchPage() {
   const { t } = useTranslation();
-  const { allTags, firstPageResults } = useLoaderData<typeof loader>();
+  const { allTags, firstPageResults, sort } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const applied = useMemo(
     () => parseSearchFilters(searchParams),
@@ -147,6 +162,7 @@ export default function SearchPage() {
   const [releaseFrom, setReleaseFrom] = useState(applied.releaseFrom);
   const [releaseTo, setReleaseTo] = useState(applied.releaseTo);
   const [dateError, setDateError] = useState<string | null>(null);
+  const [order, setOrder] = useState(sort);
 
   useEffect(() => {
     setKeyword(applied.keyword);
@@ -155,6 +171,10 @@ export default function SearchPage() {
     setReleaseTo(applied.releaseTo);
     setDateError(null);
   }, [applied]);
+
+  useEffect(() => {
+    setOrder(sort);
+  }, [sort]);
 
   const draft: SearchFilters = {
     keyword: keyword.trim(),
@@ -166,8 +186,15 @@ export default function SearchPage() {
   const appliedHasFilters = hasSearchFilters(applied);
   const emptyResults =
     appliedHasFilters &&
+    order === sort &&
     firstPageResults != null &&
     (firstPageResults.data?.length ?? 0) === 0;
+
+  const filtersToParams = (filters: SearchFilters, sortValue: RSort) => {
+    const params = filtersToSearchParams(filters);
+    params.set("sort", sortValue.toString());
+    return params;
+  };
 
   const submitSearch = (filters = draft) => {
     if (filters.releaseFrom && filters.releaseTo && filters.releaseFrom > filters.releaseTo) {
@@ -175,7 +202,7 @@ export default function SearchPage() {
       return;
     }
     setDateError(null);
-    setSearchParams(filtersToSearchParams(filters), { preventScrollReset: true });
+    setSearchParams(filtersToParams(filters, order), { preventScrollReset: true });
   };
 
   const clearFilters = () => {
@@ -184,7 +211,16 @@ export default function SearchPage() {
     setReleaseFrom("");
     setReleaseTo("");
     setDateError(null);
-    setSearchParams(new URLSearchParams(), { preventScrollReset: true });
+    const params = new URLSearchParams();
+    params.set("sort", order.toString());
+    setSearchParams(params, { preventScrollReset: true });
+  };
+
+  const updateOrder = (newOrder: RSort) => {
+    setOrder(newOrder);
+    const url = new URL(window.location.href);
+    url.searchParams.set("sort", newOrder.toString());
+    window.history.replaceState(window.history.state, "", url);
   };
 
   return (
@@ -272,6 +308,14 @@ export default function SearchPage() {
       </aside>
 
       <div className="flex-1 min-w-0">
+        <div className="flex items-center mb-2">
+          <ResourceSortControl
+            value={order}
+            onChange={updateOrder}
+            includeRelevance
+          />
+        </div>
+
         {!appliedHasFilters && (
           <div className="px-1 mb-4">
             <InfoAlert message={t("Add search filters to find resources")} />
@@ -286,16 +330,17 @@ export default function SearchPage() {
 
         {appliedHasFilters && (
           <ResourcesView
-            key={searchKey(applied)}
-            storageKey={`search-${searchKey(applied)}`}
+            key={`${searchKey(applied)}|${order}`}
+            storageKey={`search-${searchKey(applied)}-${order}`}
             loader={(page) =>
               network.searchResources(applied.keyword, page, {
                 tags: applied.tags,
                 releaseFrom: applied.releaseFrom,
                 releaseTo: applied.releaseTo,
+                sort: order,
               })
             }
-            initialData={firstPageResults}
+            initialData={order === sort ? firstPageResults : undefined}
           />
         )}
       </div>

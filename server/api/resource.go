@@ -130,7 +130,7 @@ func handleListResources(c fiber.Ctx) error {
 	if err != nil {
 		return model.NewRequestError("Invalid sort parameter")
 	}
-	if sortInt < 0 || sortInt > 7 {
+	if !model.IsValidListSort(sortInt) {
 		return model.NewRequestError("Sort parameter out of range")
 	}
 	sort := model.RSort(sortInt)
@@ -199,7 +199,7 @@ func handleListResourcesWithTag(c fiber.Ctx) error {
 	if err != nil {
 		return model.NewRequestError("Invalid sort parameter")
 	}
-	if sortInt < 0 || sortInt > 7 {
+	if !model.IsValidListSort(sortInt) {
 		return model.NewRequestError("Sort parameter out of range")
 	}
 	sort := model.RSort(sortInt)
@@ -241,6 +241,22 @@ func parseSearchTags(value string) []string {
 	return utils.RemoveDuplicate(tags)
 }
 
+func parseSearchSort(value string) (*model.RSort, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	sortInt, err := strconv.Atoi(value)
+	if err != nil {
+		return nil, model.NewRequestError("Invalid sort parameter")
+	}
+	if !model.IsValidSearchSort(sortInt) {
+		return nil, model.NewRequestError("Sort parameter out of range")
+	}
+	sort := model.RSort(sortInt)
+	return &sort, nil
+}
+
 func handleSearchResources(c fiber.Ctx) error {
 	query := strings.TrimSpace(c.Query("keyword"))
 	pageStr := c.Query("page")
@@ -259,12 +275,17 @@ func handleSearchResources(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	sort, err := parseSearchSort(c.Query("sort"))
+	if err != nil {
+		return err
+	}
 	resources, totalPages, err := service.SearchResources(service.ResourceSearchParams{
 		Keyword:     query,
 		Tags:        parseSearchTags(c.Query("tags")),
 		ReleaseFrom: releaseFrom,
 		ReleaseTo:   releaseTo,
 		Page:        page,
+		Sort:        sort,
 	})
 	if err != nil {
 		return err

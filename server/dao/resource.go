@@ -632,6 +632,28 @@ func GetResourceIDsByReleaseDate(from, to *time.Time) ([]uint, error) {
 	return ids, nil
 }
 
+func SortResourceIDs(ids []uint, sort model.RSort) ([]uint, error) {
+	if len(ids) == 0 {
+		return []uint{}, nil
+	}
+	if sort == model.RSortRelevance {
+		return ids, nil
+	}
+	order, where := resourceOrderAndWhere(sort)
+	query := db.Model(&model.Resource{}).Where("id IN ?", ids)
+	if where != "" {
+		query = query.Where(where)
+	}
+	var ordered []uint
+	if err := query.Order(order).Pluck("id", &ordered).Error; err != nil {
+		return nil, err
+	}
+	if ordered == nil {
+		ordered = []uint{}
+	}
+	return ordered, nil
+}
+
 func BatchGetResources(ids []uint) ([]model.Resource, error) {
 	var resources []model.Resource
 

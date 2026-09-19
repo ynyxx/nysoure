@@ -20,7 +20,10 @@ var (
 	mu    = sync.RWMutex{}
 )
 
-const minSearchHit = 0.2
+const (
+	minSearchHit  = 0.2
+	maxSearchHits = 10000
+)
 
 type ResourceParams struct {
 	Id         uint
@@ -118,7 +121,7 @@ func SearchResource(keyword string) ([]uint, error) {
 	mu.RLock()
 	defer mu.RUnlock()
 	query := bleve.NewMatchQuery(keyword)
-	searchRequest := bleve.NewSearchRequest(query)
+	searchRequest := bleve.NewSearchRequestOptions(query, maxSearchHits, 0, false)
 	searchResults, err := index.Search(searchRequest)
 	if err != nil {
 		return nil, err

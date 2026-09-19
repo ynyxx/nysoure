@@ -162,6 +162,53 @@ func TestSearchResource(t *testing.T) {
 	}
 }
 
+func TestSearchResourceRanksByScore(t *testing.T) {
+	Init()
+	defer TearDown()
+
+	resources := []model.Resource{
+		{Model: gorm.Model{ID: 1}, Title: "Adventure"},
+		{Model: gorm.Model{ID: 2}, Title: "The Great Adventure", AlternativeTitles: []string{"Great Adventure", "Adventure Saga"}},
+		{Model: gorm.Model{ID: 3}, Title: "Unrelated Mystery"},
+	}
+	for _, r := range resources {
+		if err := AddResourceToIndex(r); err != nil {
+			t.Fatalf("Failed to add resource ID %d to index: %v", r.ID, err)
+		}
+	}
+
+	resultIDs, err := SearchResource("The Great Adventure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resultIDs) == 0 {
+		t.Fatal("expected search hits")
+	}
+	if resultIDs[0] != 2 {
+		t.Fatalf("expected most relevant ID 2 first, got %v", resultIDs)
+	}
+}
+
+func TestSearchResourceReturnsMoreThanDefaultPage(t *testing.T) {
+	Init()
+	defer TearDown()
+
+	for id := uint(1); id <= 15; id++ {
+		r := model.Resource{Model: gorm.Model{ID: id}, Title: "UniqueToken Title"}
+		if err := AddResourceToIndex(r); err != nil {
+			t.Fatalf("Failed to add resource ID %d to index: %v", id, err)
+		}
+	}
+
+	resultIDs, err := SearchResource("UniqueToken")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resultIDs) != 15 {
+		t.Fatalf("expected 15 hits, got %d", len(resultIDs))
+	}
+}
+
 func TestIsStopWord(t *testing.T) {
 	Init()
 	defer TearDown()

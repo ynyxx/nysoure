@@ -37,6 +37,7 @@ type ResourceSearchParams struct {
 	ReleaseFrom *time.Time
 	ReleaseTo   *time.Time
 	Page        int
+	Sort        *model.RSort
 }
 
 type RelationParam struct {
@@ -564,6 +565,14 @@ func SearchResources(params ResourceSearchParams) ([]model.ResourceView, int, er
 
 	if !hasIDs {
 		return []model.ResourceView{}, 0, nil
+	}
+
+	if params.Sort != nil && *params.Sort != model.RSortRelevance {
+		sortedIDs, err := dao.SortResourceIDs(ids, *params.Sort)
+		if err != nil {
+			return nil, 0, err
+		}
+		ids = sortedIDs
 	}
 
 	total := len(ids)

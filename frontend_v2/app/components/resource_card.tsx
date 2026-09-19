@@ -46,6 +46,11 @@ export default function ResourceCard({
         )}
         <div className="flex flex-col p-4">
           <h2 className="card-title break-all">{resource.title}</h2>
+          {resource.subtitle && (
+            <p className="text-sm text-base-content/60 break-all mt-0.5">
+              {resource.subtitle}
+            </p>
+          )}
           <div className="h-2"></div>
           <p>
             {tags.map((tag) => {

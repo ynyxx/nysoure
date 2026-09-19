@@ -53,6 +53,7 @@ func main() {
 	{
 		api.AddUserRoutes(apiG)
 		api.AddTagRoutes(apiG)
+		api.AddTagTemplateRoutes(apiG)
 		api.AddImageRoutes(apiG)
 		api.AddResourceRoutes(apiG)
 		api.AddStorageRoutes(apiG)
