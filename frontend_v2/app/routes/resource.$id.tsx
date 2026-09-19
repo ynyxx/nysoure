@@ -23,7 +23,7 @@ import { Turnstile } from "@marsidev/react-turnstile";
 import { uploadingManager } from "~/network/uploading";
 import { ErrorAlert } from "~/components/alert";
 import Input, { TextArea } from "~/components/input";
-import KunApi, { kunLanguageToString, kunPlatformToString, kunResourceTypeToString, type KunPatchResourceResponse, type KunPatchResponse } from "~/network/kun";
+import KunApi, { kunLanguageToString, kunPlatformToString, kunResourceTypeToString, type MoyuPatch, type MoyuPatchResource } from "~/network/kun";
 import { CommentTile } from "~/components/comment_tile";
 import { CommentInput } from "~/components/comment_input";
 import Pagination from "~/components/pagination";
@@ -2370,7 +2370,7 @@ function KunFiles({ resource }: { resource: ResourceDetails }) {
     }
   }
 
-  const [data, setData] = useState<KunPatchResponse | null>(null);
+  const [data, setData] = useState<MoyuPatch | null>(null);
 
   const [isLoading, setLoading] = useState<boolean>(true);
 
@@ -2419,10 +2419,10 @@ function KunFiles({ resource }: { resource: ResourceDetails }) {
       </div>
       {data && (
         <div className={"flex flex-col gap-2"}>
-          {data.resource.map((file) => {
-            return <KunFile file={file} patchID={data.id} key={file.id} />;
+          {data.resources?.map((file) => {
+            return <KunFile file={file} key={file.id} />;
           })}
-          {data.resource.length === 0 && (
+          {!data.resources?.length && (
             <p className={"text-sm text-base-content/80"}>
               {t("No patches found for this VN.")}
             </p>
@@ -2433,13 +2433,7 @@ function KunFiles({ resource }: { resource: ResourceDetails }) {
   );
 }
 
-function KunFile({
-  file,
-  patchID,
-}: {
-  file: KunPatchResourceResponse;
-  patchID: number;
-}) {
+function KunFile({ file }: { file: MoyuPatchResource }) {
   const tags: string[] = [];
   if (file.model_name) {
     tags.push(file.model_name);
@@ -2458,7 +2452,7 @@ function KunFile({
           </div>
           <p className={"items-center mt-1"}>
             <a
-              href={"https://www.moyu.moe/user/" + file.user.id}
+              href={"https://www.moyu.moe/user/" + file.publisher?.id}
               target="_blank"
             >
               <Badge
@@ -2467,11 +2461,11 @@ function KunFile({
                 }
               >
                 <img
-                  src={file.user.avatar}
+                  src={file.publisher?.avatar_url}
                   className={"w-4 h-4 rounded-full"}
                   alt={"avatar"}
                 />
-                {file.user.name}
+                {file.publisher?.name}
               </Badge>
             </a>
             <Badge className={"badge-soft badge-secondary text-xs mr-2"}>
@@ -2487,7 +2481,7 @@ function KunFile({
         </div>
         <div className={"flex flex-row items-center"}>
           <a
-            href={`https://www.moyu.moe/patch/${patchID}/resource#kun_patch_resource_${file.id}`}
+            href={file.web_url}
             target="_blank"
             className={"btn btn-primary btn-soft btn-square"}
           >

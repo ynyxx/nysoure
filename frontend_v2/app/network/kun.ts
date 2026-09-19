@@ -6,31 +6,27 @@ const KunApi = {
     return true;
   },
 
-  async getPatch(id: string): Promise<Response<KunPatchResponse>> {
+  async getPatch(vndbId: string): Promise<Response<MoyuPatch>> {
     try {
       const client = axios.create({
         validateStatus(status) {
           return status === 200 || status === 404; // Accept only 200 and 404 responses
         },
       });
-      const uri = `https://www.moyu.moe/api/hikari?vndb_id=${id}`;
-      const uriBase64 = btoa(uri);
-      const res = await client.get(
-        `/api/proxy?uri=${uriBase64}`,
+      const res = await client.get<MoyuPatchList>(
+        `/api/moyu/patch?vndb_id=${encodeURIComponent(vndbId)}`,
       );
-      if (res.status === 404) {
+      const patch = res.status === 200 ? res.data.items[0] : undefined;
+      if (!patch) {
         return {
           success: false,
           message: "404",
         };
       }
-      if (res.status !== 200) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
       return {
         success: true,
         message: "ok",
-        data: res.data.data,
+        data: patch,
       };
     } catch (error) {
       console.error("Error fetching files:", error);
@@ -41,62 +37,69 @@ const KunApi = {
 
 export default KunApi;
 
-export interface KunUser {
-  id: number;
+// Schemas of NextMoe's /v2/moyu API, see
+// https://developer.nextmoe.dev/specs/moyu-openapi.yaml
+
+export interface MoyuUser {
+  object: "user";
+  id: string;
   name: string;
-  avatar: string;
+  avatar_url: string;
 }
 
-export interface KunPatchResponse {
-  id: number;
-  name: string;
+export interface MoyuPatch {
+  object: "patch";
+  id: string;
   // e.g. "vndb_id": "v19658",
   vndb_id: string;
-  banner: string;
-  introduction: string;
-  // e.g. "released": "2016-11-25",
-  released: string;
-  status: number;
-  download: number;
-  view: number;
-  resource_update_time: Date;
+  catalog_work_id: string | null;
+  content_limit: "sfw" | "nsfw" | null;
+  // e.g. "release_date": "2016-11-25",
+  release_date: string | null;
   type: string[];
   language: string[];
-  engine: string[];
   platform: string[];
-  user_id: number;
-  user: KunUser;
-  created: Date;
-  updated: Date;
-  resource: KunPatchResourceResponse[];
+  resource_count: number;
+  download_count: number;
+  view_count: number;
+  favorite_count: number;
+  comment_count: number;
+  web_url: string;
+  created_at: string;
+  updated_at: string;
+  resource_updated_at: string;
+  publisher?: MoyuUser;
+  resources?: MoyuPatchResource[];
 }
 
-export interface KunPatchResourceResponse {
-  id: number;
-  storage: "s3" | "user";
+export interface MoyuPatchResource {
+  object: "patch_resource";
+  id: string;
+  patch_id: string;
   name: string;
-  model_name: string;
+  storage: "s3" | "user";
   size: string;
-  code: string;
-  password: string;
-  note: string;
   hash: string;
+  model_name: string;
+  localization_group_name: string;
+  note: string;
   type: string[];
   language: string[];
   platform: string[];
-  download: number;
-  status: number;
-  update_time: Date;
-  user_id: number;
-  patch_id: number;
-  created: Date;
-  user: KunUser;
+  download_count: number;
+  like_count: number;
+  web_url: string;
+  created_at: string;
+  updated_at: string;
+  publisher?: MoyuUser;
 }
 
-export interface HikariResponse {
-  success: boolean;
-  message: string;
-  data: KunPatchResponse | null;
+export interface MoyuPatchList {
+  object: "list";
+  items: MoyuPatch[];
+  next_cursor: string | null;
+  total: number | null;
+  missing?: string[];
 }
 
 const SUPPORTED_LANGUAGE_MAP: Record<string, string> = {

@@ -62,6 +62,7 @@ func main() {
 		api.AddActivityRoutes(apiG)
 		api.AddCollectionRoutes(apiG)
 		api.AddProxyRoutes(apiG)
+		api.AddMoyuRoutes(apiG)
 		api.AddDevAPI(apiG)
 	}
 
