@@ -10,14 +10,12 @@ const KunApi = {
     try {
       const client = axios.create({
         validateStatus(status) {
-          return status === 200 || status === 404; // Accept only 200 and 404 responses
+          return status === 200 || status === 404;
         },
       });
-      const uri = `https://www.moyu.moe/api/hikari?vndb_id=${id}`;
-      const uriBase64 = btoa(uri);
-      const res = await client.get(
-        `/api/proxy?uri=${uriBase64}`,
-      );
+      const res = await client.get("/api/moyu/patch", {
+        params: { vndb_id: id },
+      });
       if (res.status === 404) {
         return {
           success: false,
@@ -42,61 +40,40 @@ const KunApi = {
 export default KunApi;
 
 export interface KunUser {
-  id: number;
+  id: string;
   name: string;
-  avatar: string;
+  avatar_url: string;
 }
 
 export interface KunPatchResponse {
-  id: number;
-  name: string;
-  // e.g. "vndb_id": "v19658",
+  id: string;
   vndb_id: string;
-  banner: string;
-  introduction: string;
-  // e.g. "released": "2016-11-25",
-  released: string;
-  status: number;
-  download: number;
-  view: number;
-  resource_update_time: Date;
+  web_url: string;
   type: string[];
   language: string[];
-  engine: string[];
   platform: string[];
-  user_id: number;
-  user: KunUser;
-  created: Date;
-  updated: Date;
-  resource: KunPatchResourceResponse[];
+  resource_count: number;
+  resources: KunPatchResourceResponse[];
 }
 
 export interface KunPatchResourceResponse {
-  id: number;
+  id: string;
   storage: "s3" | "user";
   name: string;
   model_name: string;
+  localization_group_name: string;
   size: string;
-  code: string;
-  password: string;
   note: string;
   hash: string;
   type: string[];
   language: string[];
   platform: string[];
-  download: number;
-  status: number;
-  update_time: Date;
-  user_id: number;
-  patch_id: number;
-  created: Date;
-  user: KunUser;
-}
-
-export interface HikariResponse {
-  success: boolean;
-  message: string;
-  data: KunPatchResponse | null;
+  download_count: number;
+  web_url: string;
+  created_at: string;
+  updated_at: string;
+  patch_id: string;
+  publisher?: KunUser;
 }
 
 const SUPPORTED_LANGUAGE_MAP: Record<string, string> = {

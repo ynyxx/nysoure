@@ -2365,7 +2365,7 @@ function KunFiles({ resource }: { resource: ResourceDetails }) {
   let vnid = "";
   for (const link of resource.links ?? []) {
     if (link.label.toLowerCase() === "vndb") {
-      vnid = link.url.split("/").pop() || "";
+      vnid = (link.url.split("/").pop() || "").split(/[?#]/)[0];
       break;
     }
   }
@@ -2410,7 +2410,7 @@ function KunFiles({ resource }: { resource: ResourceDetails }) {
   return (
     <>
       <div className="mx-2 my-4 flex">
-        <a href="https://moyu.moe" target="_blank">
+        <a href={data.web_url || "https://www.moyu.moe"} target="_blank">
           <div className="border-b-2 pb-1 border-transparent hover:border-primary select-none cursor-pointer transition-all flex items-center gap-2">
             <img src="/kun.webp" className="h-8 w-8 rounded-full" />
             <span className="text-xl font-bold">鲲补丁</span>
@@ -2419,10 +2419,10 @@ function KunFiles({ resource }: { resource: ResourceDetails }) {
       </div>
       {data && (
         <div className={"flex flex-col gap-2"}>
-          {data.resource.map((file) => {
-            return <KunFile file={file} patchID={data.id} key={file.id} />;
+          {(data.resources ?? []).map((file) => {
+            return <KunFile file={file} key={file.id} />;
           })}
-          {data.resource.length === 0 && (
+          {(data.resources ?? []).length === 0 && (
             <p className={"text-sm text-base-content/80"}>
               {t("No patches found for this VN.")}
             </p>
@@ -2435,18 +2435,19 @@ function KunFiles({ resource }: { resource: ResourceDetails }) {
 
 function KunFile({
   file,
-  patchID,
 }: {
   file: KunPatchResourceResponse;
-  patchID: number;
 }) {
   const tags: string[] = [];
   if (file.model_name) {
     tags.push(file.model_name);
   }
-  tags.push(...file.platform.map((p) => kunPlatformToString(p)));
-  tags.push(...file.language.map((l) => kunLanguageToString(l)));
-  tags.push(...file.type.map((t) => kunResourceTypeToString(t)));
+  if (file.localization_group_name) {
+    tags.push(file.localization_group_name);
+  }
+  tags.push(...(file.platform ?? []).map((p) => kunPlatformToString(p)));
+  tags.push(...(file.language ?? []).map((l) => kunLanguageToString(l)));
+  tags.push(...(file.type ?? []).map((t) => kunResourceTypeToString(t)));
 
   return (
     <div className={"card shadow bg-base-100/80 mb-4"}>
@@ -2454,30 +2455,31 @@ function KunFile({
           <div className={"grow min-w-0"}>
           <h4 className={"font-bold break-all"}>{file.name}</h4>
           <div className={"text-sm my-1 comment_tile"}>
-            <Markdown>{file.note.replaceAll("\n", "  \n")}</Markdown>
+            <Markdown>{(file.note ?? "").replaceAll("\n", "  \n")}</Markdown>
           </div>
           <p className={"items-center mt-1"}>
-            <a
-              href={"https://www.moyu.moe/user/" + file.user.id}
-              target="_blank"
-            >
+            {file.publisher && (
               <Badge
                 className={
                   "badge-soft badge-primary text-xs mr-2 hover:shadow-xs transition-shadow"
                 }
               >
-                <img
-                  src={file.user.avatar}
-                  className={"w-4 h-4 rounded-full"}
-                  alt={"avatar"}
-                />
-                {file.user.name}
+                {file.publisher.avatar_url && (
+                  <img
+                    src={file.publisher.avatar_url}
+                    className={"w-4 h-4 rounded-full"}
+                    alt={"avatar"}
+                  />
+                )}
+                {file.publisher.name}
               </Badge>
-            </a>
-            <Badge className={"badge-soft badge-secondary text-xs mr-2"}>
-              <MdOutlineArchive size={16} className={"inline-block"} />
-              {file.size}
-            </Badge>
+            )}
+            {file.size && (
+              <Badge className={"badge-soft badge-secondary text-xs mr-2"}>
+                <MdOutlineArchive size={16} className={"inline-block"} />
+                {file.size}
+              </Badge>
+            )}
             {tags.map((p, index) => (
               <Badge className={"badge-soft badge-info text-xs mr-2"} key={`${p}-${index}`}>
                 {p}
@@ -2485,15 +2487,17 @@ function KunFile({
             ))}
           </p>
         </div>
-        <div className={"flex flex-row items-center"}>
-          <a
-            href={`https://www.moyu.moe/resource/${file.id}`}
-            target="_blank"
-            className={"btn btn-primary btn-soft btn-square"}
-          >
-            <MdOutlineOpenInNew size={24} />
-          </a>
-        </div>
+        {file.web_url && (
+          <div className={"flex flex-row items-center"}>
+            <a
+              href={file.web_url}
+              target="_blank"
+              className={"btn btn-primary btn-soft btn-square"}
+            >
+              <MdOutlineOpenInNew size={24} />
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );
