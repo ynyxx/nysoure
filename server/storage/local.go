@@ -42,9 +42,13 @@ func (s *LocalStorage) Download(storageKey string, _ string) (string, error) {
 func (s *LocalStorage) Delete(storageKey string) error {
 	path := s.Path + "/" + storageKey
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil
+		return ErrObjectNotFound
 	}
-	return os.Remove(path)
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return ErrObjectNotFound
+	}
+	return err
 }
 
 func (s *LocalStorage) ToString() string {

@@ -9,6 +9,8 @@ var (
 	// ErrFileUnavailable is returned when the file is unavailable.
 	// When this error is returned, it is required to delete the file info from the database.
 	ErrFileUnavailable = errors.New("file unavailable")
+	// ErrObjectNotFound is returned when Delete finds no live object for the key.
+	ErrObjectNotFound = errors.New("storage object not found")
 )
 
 type IStorage interface {

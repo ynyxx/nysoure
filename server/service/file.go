@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -366,7 +367,7 @@ func DeleteFile(c ctx2.Context, fid string) error {
 	if file.StorageID != nil {
 		iStorage := storage.NewStorage(file.Storage)
 		if iStorage != nil {
-			if err := iStorage.Delete(file.StorageKey); err != nil {
+			if err := iStorage.Delete(file.StorageKey); err != nil && !errors.Is(err, storage.ErrObjectNotFound) {
 				log.Error("failed to delete file from storage: ", err)
 				return model.NewInternalServerError("failed to delete file from storage")
 			}
@@ -710,7 +711,13 @@ func CreateFileMigrationTask(c ctx2.Context, fileID string, targetStorageID uint
 	}
 
 	migrationTask := task.NewFileMigrationTask(file.ID, file.UUID, file.Filename, *file.StorageID, targetStorageID, file.Size)
-	task.RegisterTask(migrationTask)
+	if err := task.TryRegisterFileMigration(migrationTask); err != nil {
+		migrationTask.Stop()
+		if errors.Is(err, task.ErrMigrationAlreadyRunning) {
+			return nil, model.NewRequestError("file migration is already running")
+		}
+		return nil, model.NewInternalServerError("failed to start file migration")
+	}
 
 	go func() {
 		if err := migrationTask.Run(); err != nil {

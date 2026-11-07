@@ -1,9 +1,14 @@
 package task
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
+
+// ErrMigrationAlreadyRunning is returned when a file already has a migration
+// that has not finished.
+var ErrMigrationAlreadyRunning = errors.New("file migration is already running")
 
 type TaskStatus string
 
@@ -33,6 +38,24 @@ func RegisterTask(task Task) {
 	tasksMu.Lock()
 	defer tasksMu.Unlock()
 	tasks[task.ID()] = task
+}
+
+// TryRegisterFileMigration registers a migration unless this file already has
+// one that is still pending or running.
+func TryRegisterFileMigration(task *FileMigrationTask) error {
+	tasksMu.Lock()
+	defer tasksMu.Unlock()
+	for _, existing := range tasks {
+		migration, ok := existing.(*FileMigrationTask)
+		if !ok || migration.fileID != task.fileID || migration.ID() == task.ID() {
+			continue
+		}
+		if !migration.isTerminal() {
+			return ErrMigrationAlreadyRunning
+		}
+	}
+	tasks[task.ID()] = task
+	return nil
 }
 
 func GetTask(id string) (Task, bool) {

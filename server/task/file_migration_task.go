@@ -75,6 +75,11 @@ func (t *FileMigrationTask) Run() error {
 	if file.StorageID == nil || file.StorageKey == "" {
 		return t.fail(model.NewRequestError("file is not available"))
 	}
+	if *file.StorageID != t.sourceStorageID {
+		return t.fail(model.NewRequestError("file storage changed"))
+	}
+	expectedStorageID := *file.StorageID
+	expectedKey := file.StorageKey
 
 	sourceStorage, err := dao.GetStorage(t.sourceStorageID)
 	if err != nil {
@@ -161,6 +166,14 @@ func (t *FileMigrationTask) Run() error {
 		return t.handleCanceled()
 	}
 
+	file, err = dao.GetFileByID(t.fileID)
+	if err != nil {
+		return t.fail(model.NewNotFoundError("file not found"))
+	}
+	if file.StorageID == nil || *file.StorageID != expectedStorageID || file.StorageKey != expectedKey {
+		return t.fail(model.NewRequestError("file storage changed"))
+	}
+
 	st, err := os.Stat(tempPath)
 	if err != nil {
 		log.Error("failed to get migrated temp file info: ", err)
@@ -179,26 +192,37 @@ func (t *FileMigrationTask) Run() error {
 		log.Error("failed to upload file to target storage: ", err)
 		return t.fail(model.NewInternalServerError("failed to upload file to target storage"))
 	}
+	if err := t.ctx.Err(); err != nil {
+		_ = iTargetStorage.Delete(newStorageKey)
+		return t.handleCanceled()
+	}
 
-	oldStorageKey := file.StorageKey
-	if err := dao.UpdateFileStorage(t.fileUUID, t.targetStorageID, newStorageKey); err != nil {
+	updated, err := dao.UpdateFileStorageIfCurrent(t.fileUUID, expectedStorageID, expectedKey, t.targetStorageID, newStorageKey)
+	if err != nil {
 		log.Error("failed to update file storage info: ", err)
 		_ = iTargetStorage.Delete(newStorageKey)
 		return t.fail(model.NewInternalServerError("failed to update file storage info"))
 	}
+	if !updated {
+		log.Error("file storage changed during migration: ", t.fileUUID)
+		_ = iTargetStorage.Delete(newStorageKey)
+		return t.fail(model.NewRequestError("file storage changed during migration"))
+	}
 	if err := dao.AddStorageUsage(t.targetStorageID, size); err != nil {
 		log.Error("failed to update target storage usage: ", err)
-		_ = dao.UpdateFileStorage(t.fileUUID, t.sourceStorageID, oldStorageKey)
+		_, _ = dao.UpdateFileStorageIfCurrent(t.fileUUID, t.targetStorageID, newStorageKey, expectedStorageID, expectedKey)
 		_ = iTargetStorage.Delete(newStorageKey)
 		return t.fail(model.NewInternalServerError("failed to update storage usage"))
 	}
 
-	if err := iSourceStorage.Delete(oldStorageKey); err != nil {
-		log.Error("failed to delete source file after migration: ", err)
-	} else {
-		if err := dao.AddStorageUsage(t.sourceStorageID, -size); err != nil {
-			log.Error("failed to update source storage usage: ", err)
+	if err := iSourceStorage.Delete(expectedKey); err != nil {
+		if errors.Is(err, storage.ErrObjectNotFound) {
+			log.Info("source object already gone, skip storage usage decrement: ", t.fileUUID)
+		} else {
+			log.Error("failed to delete source file after migration: ", err)
 		}
+	} else if err := dao.AddStorageUsage(t.sourceStorageID, -size); err != nil {
+		log.Error("failed to update source storage usage: ", err)
 	}
 
 	t.transferredBytes.Store(size)

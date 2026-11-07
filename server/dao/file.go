@@ -286,6 +286,22 @@ func UpdateFileStorage(id string, storageID uint, storageKey string) error {
 	return nil
 }
 
+// UpdateFileStorageIfCurrent updates the file only while it still points at
+// expectedStorageID and expectedKey. ok is false when another writer already
+// changed the file.
+func UpdateFileStorageIfCurrent(id string, expectedStorageID uint, expectedKey string, storageID uint, storageKey string) (bool, error) {
+	result := db.Model(&model.File{}).
+		Where("uuid = ? AND storage_id = ? AND storage_key = ?", id, expectedStorageID, expectedKey).
+		Updates(map[string]any{
+			"storage_id":  storageID,
+			"storage_key": storageKey,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func ListUserFiles(userID uint, page, pageSize int) ([]*model.File, int64, error) {
 	var files []*model.File
 	var count int64

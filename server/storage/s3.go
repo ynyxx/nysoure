@@ -94,6 +94,7 @@ func (s *S3Storage) Delete(storageKey string) error {
 	}
 
 	var objectsToDelete []minio.ObjectInfo
+	liveObjects := 0
 	useFallback := false
 
 	// ListObjects returns a channel. Check for errors.
@@ -105,10 +106,15 @@ func (s *S3Storage) Delete(storageKey string) error {
 		}
 		if object.Key == storageKey {
 			objectsToDelete = append(objectsToDelete, object)
+			if !object.IsDeleteMarker {
+				liveObjects++
+			}
 		}
 	}
 
-	// If listing failed or fallback is needed, use standard RemoveObject
+	// If listing failed or fallback is needed, use standard RemoveObject.
+	// DeleteObject succeeds even when the key is already gone, so this path
+	// cannot tell a real delete from a missing object.
 	if useFallback {
 		err = minioClient.RemoveObject(ctx, s.BucketName, storageKey, minio.RemoveObjectOptions{})
 		if err != nil {
@@ -140,6 +146,9 @@ func (s *S3Storage) Delete(storageKey string) error {
 		}
 	}
 
+	if liveObjects == 0 {
+		return ErrObjectNotFound
+	}
 	return nil
 }
 
