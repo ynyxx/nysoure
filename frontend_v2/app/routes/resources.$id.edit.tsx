@@ -1,6 +1,6 @@
 import type { Route } from "./+types/resources.$id.edit";
 import { network } from "../network/network";
-import { useNavigate } from "react-router";
+import { data, useNavigate } from "react-router";
 import { useTranslation } from "../hook/i18n";
 import { ErrorAlert } from "../components/alert";
 import ResourceForm, { type RelationFormItem, type ResourceFormData } from "../components/resource_form";
@@ -17,13 +17,16 @@ export function meta({ matches }: Route.MetaArgs) {
 export async function loader({ params, request }: Route.LoaderArgs) {
   const id = parseInt(params.id);
   if (isNaN(id)) {
-    throw new Error("Invalid resource ID");
+    throw data("Not Found", { status: 404 });
   }
 
   const cookie = request.headers.get("Cookie");
   const res = await network.getResourceDetails(id, cookie || undefined);
   if (!res.success || !res.data) {
-    throw new Error("Failed to load resource");
+    if (res.status === 404 || (res.message ?? "").includes("Resource not found")) {
+      throw data("Not Found", { status: 404 });
+    }
+    throw new Error(res.message || "Failed to load resource");
   }
 
   return {

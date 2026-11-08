@@ -5,7 +5,7 @@ import { Children, createContext, createRef, isValidElement, useCallback, useCon
 import { AnimatePresence, motion } from "framer-motion";
 import { MdAdd, MdOutlineAccessTime, MdOutlineAdd, MdOutlineArchive, MdOutlineArticle, MdOutlineCloud, MdOutlineComment, MdOutlineContentCopy, MdOutlineDataset, MdOutlineDelete, MdOutlineDownload, MdOutlineEdit, MdOutlineFolderSpecial, MdOutlineInfo, MdOutlineKeyboardArrowDown, MdOutlineLink, MdOutlineOpenInNew, MdOutlineStar, MdOutlineSwapHoriz, MdOutlineVerifiedUser } from "react-icons/md";
 import { useTranslation } from "~/hook/i18n";
-import { NavLink, useNavigate } from "react-router";
+import { data, NavLink, useNavigate } from "react-router";
 import type { CharacterParams, Collection, RelationView, Resource, ResourceDetails, RFile, RLink, Tag, Storage as RStorage, Comment as RComment } from "~/network/models";
 import Badge from "~/components/badge";
 import { BiLogoSteam } from "react-icons/bi";
@@ -80,12 +80,15 @@ export function meta({ loaderData, matches }: Route.MetaArgs) {
 export async function loader({ params, request }: Route.LoaderArgs) {
   const id = parseInt(params.id);
   if (isNaN(id)) {
-    throw new Error("Invalid resource ID");
+    throw data("Not Found", { status: 404 });
   }
   const cookie = request.headers.get("Cookie");
   const res = await network.getResourceDetails(id, cookie || undefined);
   if (!res.success || !res.data) {
-    throw new Error("Failed to load resource");
+    if (res.status === 404 || (res.message ?? "").includes("Resource not found")) {
+      throw data("Not Found", { status: 404 });
+    }
+    throw new Error(res.message || "Failed to load resource");
   }
   return { resource: res.data };
 }

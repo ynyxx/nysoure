@@ -29,6 +29,12 @@ import type {
   TagTemplate,
 } from "./models.ts";
 
+function httpError(message: string, status: number): Error & { status: number } {
+  const error = new Error(message) as Error & { status: number };
+  error.status = status;
+  return error;
+}
+
 class Network {
   get apiBaseUrl() {
     if (typeof window !== "undefined") {
@@ -47,10 +53,14 @@ class Network {
       const response = await request();
       return response.data;
     } catch (e: any) {
-      console.error(e);
+      const status = typeof e?.status === "number" ? e.status : undefined;
+      if (status !== 404) {
+        console.error(e);
+      }
       return {
         success: false,
-        message: e.toString(),
+        message: typeof e?.toString === "function" ? e.toString() : String(e),
+        status,
       } as any;
     }
   }
@@ -67,13 +77,12 @@ class Network {
       (response) => {
         if (response.status >= 400 && response.status < 500) {
           const data = response.data;
-          if (data.message) {
-            throw new Error(data.message);
-          } else {
-            throw new Error(`Invalid response: ${response.status}`);
-          }
+          const message = data?.message
+            ? String(data.message)
+            : `Invalid response: ${response.status}`;
+          throw httpError(message, response.status);
         } else if (response.status >= 500) {
-          throw new Error(`Server error: ${response.status}`);
+          throw httpError(`Server error: ${response.status}`, response.status);
         } else {
           return response;
         }

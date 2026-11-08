@@ -7,41 +7,84 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3/log"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"gorm.io/gorm"
 )
 
 func CreateTag(tag string) (model.Tag, error) {
-	// Create a new tag in the database
-	if strings.Contains(tag, "%") {
-		return model.Tag{}, model.NewRequestError("Tag name cannot contain '%' character")
-	}
-	t := model.Tag{Name: tag}
-	if err := db.Create(&t).Error; err != nil {
+	t, err := insertOrReuseTag(tag, "", "")
+	if err != nil {
 		return model.Tag{}, err
 	}
 	return GetTagByID(t.ID)
 }
 
 func CreateTagWithType(tag string, tagType string) (model.Tag, error) {
-	// Create a new tag with a specific type in the database
-	if strings.Contains(tag, "%") {
+	return insertOrReuseTag(tag, tagType, "")
+}
+
+func CreateTagWithVNID(tag string, tagType string, vnID string) (model.Tag, error) {
+	return insertOrReuseTag(tag, tagType, vnID)
+}
+
+// uni_tags_name includes soft-deleted rows, so recreating a deleted name
+// fails the insert. Restore that row instead of returning a 500.
+func insertOrReuseTag(name, tagType, vnID string) (model.Tag, error) {
+	if strings.Contains(name, "%") {
 		return model.Tag{}, model.NewRequestError("Tag name cannot contain '%' character")
 	}
-	t := model.Tag{Name: tag, Type: tagType}
+	t := model.Tag{Name: name, Type: tagType, VNID: vnID}
 	if err := db.Create(&t).Error; err != nil {
-		return model.Tag{}, err
+		if !isUniqueViolation(err) {
+			return model.Tag{}, err
+		}
+		return reuseTagByName(name, tagType, vnID)
 	}
 	return t, nil
 }
 
-func CreateTagWithVNID(tag string, tagType string, vnID string) (model.Tag, error) {
-	// Create a new tag with a specific type and VNID in the database
-	if strings.Contains(tag, "%") {
-		return model.Tag{}, model.NewRequestError("Tag name cannot contain '%' character")
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
 	}
-	t := model.Tag{Name: tag, Type: tagType, VNID: vnID}
-	if err := db.Create(&t).Error; err != nil {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return true
+	}
+	return strings.Contains(err.Error(), "SQLSTATE 23505")
+}
+
+func reuseTagByName(name, tagType, vnID string) (model.Tag, error) {
+	var t model.Tag
+	err := db.Unscoped().Where("name = ?", name).First(&t).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.Tag{}, model.NewRequestError("Tag name already exists")
+		}
+		return model.Tag{}, err
+	}
+
+	updates := map[string]any{}
+	if t.DeletedAt.Valid {
+		updates["deleted_at"] = gorm.Expr("NULL")
+		t.DeletedAt = gorm.DeletedAt{}
+	}
+	if tagType != "" && strings.TrimSpace(t.Type) == "" {
+		updates["type"] = tagType
+		t.Type = tagType
+	}
+	if vnID != "" && strings.TrimSpace(t.VNID) == "" {
+		updates["vnid"] = vnID
+		t.VNID = vnID
+	}
+	if len(updates) == 0 {
+		return t, nil
+	}
+	if err := db.Unscoped().Model(&model.Tag{}).Where("id = ?", t.ID).Updates(updates).Error; err != nil {
 		return model.Tag{}, err
 	}
 	return t, nil
