@@ -605,6 +605,26 @@ class Network {
     );
   }
 
+  async createGoogleDriveStorage(
+    name: string,
+    clientID: string,
+    clientSecret: string,
+    refreshToken: string,
+    folderID: string,
+    maxSizeInMB: number,
+  ): Promise<Response<any>> {
+    return this._callApi(() =>
+      axios.post(`${this.apiBaseUrl}/storage/gdrive`, {
+        name,
+        clientID,
+        clientSecret,
+        refreshToken,
+        folderID,
+        maxSizeInMB,
+      }),
+    );
+  }
+
   async listStorages(): Promise<Response<Storage[]>> {
     return this._callApi(() => axios.get(`${this.apiBaseUrl}/storage`));
   }

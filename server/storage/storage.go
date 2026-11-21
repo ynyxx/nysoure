@@ -53,6 +53,14 @@ func NewStorage(s model.Storage) IStorage {
 			return nil
 		}
 		return &r
+
+	case "gdrive":
+		r := GoogleDriveStorage{}
+		err := r.FromString(s.Config)
+		if err != nil {
+			return nil
+		}
+		return &r
 	}
 	return nil
 }

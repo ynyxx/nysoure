@@ -89,6 +89,32 @@ func handleCreateFTPStorage(c fiber.Ctx) error {
 	})
 }
 
+func handleCreateGoogleDriveStorage(c fiber.Ctx) error {
+	var params service.CreateGoogleDriveStorageParams
+	if err := c.Bind().JSON(&params); err != nil {
+		return model.NewRequestError("Invalid request body")
+	}
+
+	if params.Name == "" || params.ClientID == "" || params.ClientSecret == "" || params.RefreshToken == "" {
+		return model.NewRequestError("All fields are required")
+	}
+
+	if params.MaxSizeInMB <= 0 {
+		return model.NewRequestError("Max size must be greater than 0")
+	}
+
+	context := ctx.NewContext(c)
+	err := service.CreateGoogleDriveStorage(context, params)
+	if err != nil {
+		return err
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(model.Response[any]{
+		Success: true,
+		Message: "Google Drive storage created successfully",
+	})
+}
+
 func handleListStorages(c fiber.Ctx) error {
 	storages, err := service.ListStorages()
 	if err != nil {
@@ -149,6 +175,7 @@ func AddStorageRoutes(r fiber.Router) {
 	s.Post("/s3", handleCreateS3Storage)
 	s.Post("/local", handleCreateLocalStorage)
 	s.Post("/ftp", handleCreateFTPStorage)
+	s.Post("/gdrive", handleCreateGoogleDriveStorage)
 	s.Get("/", handleListStorages)
 	s.Delete("/:id", handleDeleteStorage)
 	s.Put("/:id/default", handleSetDefaultStorage)

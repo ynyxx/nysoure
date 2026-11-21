@@ -260,6 +260,7 @@ enum StorageType {
   local,
   s3,
   ftp,
+  gdrive,
 }
 
 function NewStorageDialog({ onAdded }: { onAdded: () => void }) {
@@ -279,6 +280,10 @@ function NewStorageDialog({ onAdded }: { onAdded: () => void }) {
     username: "",
     password: "",
     basePath: "",
+    clientID: "",
+    clientSecret: "",
+    refreshToken: "",
+    folderID: "",
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -288,6 +293,7 @@ function NewStorageDialog({ onAdded }: { onAdded: () => void }) {
     if (storageType == null) {
       return;
     }
+    setError("");
     setIsLoading(true);
 
     let response;
@@ -344,6 +350,26 @@ function NewStorageDialog({ onAdded }: { onAdded: () => void }) {
         params.password,
         params.basePath,
         params.domain,
+        params.maxSizeInMB,
+      );
+    } else if (storageType === StorageType.gdrive) {
+      if (
+        params.name === "" ||
+        params.clientID === "" ||
+        params.clientSecret === "" ||
+        params.refreshToken === "" ||
+        params.maxSizeInMB <= 0
+      ) {
+        setError(t("All fields are required"));
+        setIsLoading(false);
+        return;
+      }
+      response = await network.createGoogleDriveStorage(
+        params.name,
+        params.clientID,
+        params.clientSecret,
+        params.refreshToken,
+        params.folderID,
         params.maxSizeInMB,
       );
     }
@@ -416,6 +442,15 @@ function NewStorageDialog({ onAdded }: { onAdded: () => void }) {
               aria-label={t("FTP")}
               onInput={() => {
                 setStorageType(StorageType.ftp);
+              }}
+            />
+            <input
+              className="btn"
+              type="radio"
+              name="type"
+              aria-label={t("Google Drive")}
+              onInput={() => {
+                setStorageType(StorageType.gdrive);
               }}
             />
           </form>
@@ -660,6 +695,98 @@ function NewStorageDialog({ onAdded }: { onAdded: () => void }) {
                     setParams({
                       ...params,
                       domain: e.target.value,
+                    });
+                  }}
+                />
+              </label>
+              <label className="input w-full my-2">
+                {t("Max Size (MB)")}
+                <input
+                  type="number"
+                  className="validator"
+                  required
+                  min="0"
+                  value={params.maxSizeInMB.toString()}
+                  onChange={(e) => {
+                    setParams({
+                      ...params,
+                      maxSizeInMB: parseInt(e.target.value),
+                    });
+                  }}
+                />
+              </label>
+            </>
+          )}
+
+          {storageType === StorageType.gdrive && (
+            <>
+              <label className="input w-full my-2">
+                {t("Name")}
+                <input
+                  type="text"
+                  className="w-full"
+                  value={params.name}
+                  onChange={(e) => {
+                    setParams({
+                      ...params,
+                      name: e.target.value,
+                    });
+                  }}
+                />
+              </label>
+              <label className="input w-full my-2">
+                {t("Client ID")}
+                <input
+                  type="text"
+                  className="w-full"
+                  value={params.clientID}
+                  onChange={(e) => {
+                    setParams({
+                      ...params,
+                      clientID: e.target.value,
+                    });
+                  }}
+                />
+              </label>
+              <label className="input w-full my-2">
+                {t("Client Secret")}
+                <input
+                  type="password"
+                  className="w-full"
+                  value={params.clientSecret}
+                  onChange={(e) => {
+                    setParams({
+                      ...params,
+                      clientSecret: e.target.value,
+                    });
+                  }}
+                />
+              </label>
+              <label className="input w-full my-2">
+                {t("Refresh Token")}
+                <input
+                  type="password"
+                  className="w-full"
+                  value={params.refreshToken}
+                  onChange={(e) => {
+                    setParams({
+                      ...params,
+                      refreshToken: e.target.value,
+                    });
+                  }}
+                />
+              </label>
+              <label className="input w-full my-2">
+                {t("Folder ID")}
+                <input
+                  type="text"
+                  placeholder={t("Optional")}
+                  className="w-full"
+                  value={params.folderID}
+                  onChange={(e) => {
+                    setParams({
+                      ...params,
+                      folderID: e.target.value,
                     });
                   }}
                 />

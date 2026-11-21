@@ -100,6 +100,35 @@ func CreateFTPStorage(c ctx.Context, params CreateFTPStorageParams) error {
 	return err
 }
 
+type CreateGoogleDriveStorageParams struct {
+	Name         string `json:"name"`
+	ClientID     string `json:"clientID"`
+	ClientSecret string `json:"clientSecret"`
+	RefreshToken string `json:"refreshToken"`
+	FolderID     string `json:"folderID"`
+	MaxSizeInMB  uint   `json:"maxSizeInMB"`
+}
+
+func CreateGoogleDriveStorage(c ctx.Context, params CreateGoogleDriveStorageParams) error {
+	if c.UserPermission() != model.PermissionAdmin {
+		return model.NewUnAuthorizedError("only admin can create google drive storage")
+	}
+	gdrive := storage.GoogleDriveStorage{
+		ClientID:     params.ClientID,
+		ClientSecret: params.ClientSecret,
+		RefreshToken: params.RefreshToken,
+		FolderID:     params.FolderID,
+	}
+	s := model.Storage{
+		Name:    params.Name,
+		Type:    gdrive.Type(),
+		Config:  gdrive.ToString(),
+		MaxSize: int64(params.MaxSizeInMB) * 1024 * 1024,
+	}
+	_, err := dao.CreateStorage(s)
+	return err
+}
+
 func ListStorages() ([]model.StorageView, error) {
 	storages, err := dao.GetStorages()
 	if err != nil {
