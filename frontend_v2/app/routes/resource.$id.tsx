@@ -1111,24 +1111,25 @@ function RelatedResourceCard({
   return (
     <NavLink
       to={"/resources/" + r.id}
-      className={
-        "inline-block shadow hover:shadow-md transition-shadow relative h-52 w-full max-w-md rounded-sm overflow-clip"
-      }
+      className="group mr-3 mb-5 inline-flex w-32 max-w-full shrink-0 flex-col align-top break-normal text-base-content no-underline hover:no-underline sm:w-48"
     >
-      {r.image != null && (
+      <span className="relative block aspect-3/4 overflow-hidden rounded-lg bg-base-200 shadow-sm transition-shadow group-hover:shadow-md">
+        {r.image != null && (
           <img
-              src={network.getResampledImageUrl(r.image.id)}
-              alt="cover"
-              className="w-full h-full object-cover object-top"
-              style={{
-                borderRadius: 0,
-              }}
-            />
+            src={network.getResampledImageUrl(r.image.id)}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover object-center"
+          />
         )}
-        <span className="block absolute bottom-0 left-0 right-0 p-2 bg-linear-to-t from-black/70 to-transparent">
-          <span className="text-lg font-bold line-clamp-2 overflow-hidden text-white">{r.title}</span>
-          {content && <span className="text-xs line-clamp-1 overflow-hidden text-white">{content}</span>}
+      </span>
+      <span className="mt-2 line-clamp-2 text-sm font-semibold leading-snug group-hover:text-primary">
+        {r.title}
+      </span>
+      {content && (
+        <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-base-content/60">
+          {content}
         </span>
+      )}
     </NavLink>
   );
 }
@@ -1142,8 +1143,8 @@ function ResourceRelations({ relations }: { relations?: RelationView[] }) {
 
   return (
     <div className="mt-4">
-      <h3 className="text-xl font-bold mb-4">{t("Related Resources")}</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      <h3 className="mb-4 text-xl font-bold">{t("Related Resources")}</h3>
+      <div className="flex flex-wrap items-start">
         {relations.map((rel) => (
           <RelatedResourceCard key={rel.resource.id} r={rel.resource} content={rel.description || undefined} />
         ))}
